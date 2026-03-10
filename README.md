@@ -1,16 +1,20 @@
 # Smart Parking Management System
 
-A complete computer vision-based smart parking management system using YOLOv8 for vehicle detection and occupancy analysis. The system provides real-time parking space monitoring with a web dashboard for visualization and statistics.
+A comprehensive Smart Parking Management System using AI-powered computer vision for real-time vehicle detection and parking space monitoring. Features a modern React dashboard with analytics, revenue tracking, live video feeds, and annotated output processing.
 
 ## Features
 
-- **Real-time Vehicle Detection**: Uses YOLOv8 to detect vehicles (cars, trucks, buses, motorcycles) from video streams
-- **Parking Space Occupancy Detection**: Determines if parking spaces are occupied using bounding box overlap (IoU)
-- **Web Dashboard**: React-based dashboard with live updates via WebSockets
-- **Statistics**: Real-time parking statistics including total spaces, occupied/available counts, and occupancy rate
-- **Historical Data**: Stores parking status changes in database for analysis
-- **Modular Architecture**: Clean, modular code suitable for academic projects
-- **API Endpoints**: RESTful API for status, statistics, and historical data
+- **AI-Powered Vehicle Detection**: Uses YOLOv8 for real-time detection of vehicles in parking areas
+- **Video Upload and Live Feed**: Upload videos for processing or connect to live camera feeds with annotated output
+- **Real-Time Statistics**: Live dashboard with parking occupancy, available spaces, and rates
+- **Analytics Dashboard**: Heatmaps, dwell time analysis, and occupancy patterns over time
+- **Revenue Management**: Track parking revenue, transactions, and financial reports
+- **License Plate Recognition (LPR)**: Vehicle identification and logging system
+- **Navigation Map**: Interactive map for parking lot navigation
+- **WebSocket Updates**: Real-time data updates across the application
+- **Responsive UI**: Modern glassmorphism design with mobile support
+- **PostgreSQL Database**: Robust data storage for statistics, history, and analytics
+- **Modular Architecture**: Clean, scalable code suitable for production use
 
 ## Technology Stack
 
@@ -19,39 +23,50 @@ A complete computer vision-based smart parking management system using YOLOv8 fo
 - FastAPI (web framework)
 - OpenCV (video processing)
 - Ultralytics YOLOv8 (vehicle detection)
-- PyTorch (deep learning)
 - SQLAlchemy (database ORM)
-- SQLite (database, can be changed to PostgreSQL)
+- PostgreSQL (database)
+- APScheduler (background tasks)
+- WebSockets (real-time updates)
 
 ### Frontend
-- React.js (UI framework)
-- Chart.js (data visualization)
+- React.js with Hooks (UI framework)
+- CSS Variables for glassmorphism theming
+- Lucide React (icons)
+- React-Leaflet (mapping)
 - WebSockets (real-time updates)
 
 ## Project Structure
 
 ```
-parking-system/
+yolov8/
 ├── backend/
-│   ├── main.py          # Main application entry point
-│   ├── detector.py      # YOLOv8 vehicle detection module
-│   ├── parking_logic.py # Occupancy detection and statistics
-│   ├── database.py      # Database models and operations
-│   ├── api.py           # FastAPI routes and WebSocket
-│   └── config.py        # Configuration settings
-├── models/
-│   └── yolov8_model.pt  # YOLOv8 model (downloaded automatically)
-├── data/
-│   └── parking_slots.json # Parking space coordinates
+│   ├── main.py          # FastAPI app with WebSocket and video processing
+│   ├── api.py           # API endpoints for stats, upload, analytics
+│   ├── database.py      # SQLAlchemy models and database operations
+│   ├── config.py        # Configuration settings
+│   ├── tracker.py       # Object tracking logic
+│   └── scheduler.py     # Background task scheduling
 ├── frontend/
-│   ├── public/
 │   ├── src/
-│   │   ├── App.js       # Main React component
-│   │   ├── App.css      # Styles
+│   │   ├── App.js       # Main app component
+│   │   ├── components/
+│   │   │   ├── Header.jsx
+│   │   ├── LiveFeed.jsx
+│   │   ├── Controls.jsx
+│   │   ├── StatsPanel.jsx
+│   │   ├── ActivityLog.jsx
+│   │   └── pages/
+│   │       ├── Dashboard.jsx
+│   │       ├── AnalyticsPage.jsx
+│   │       ├── LPRPage.jsx
+│   │       └── RevenuePage.jsx
 │   │   └── index.js     # React entry point
 │   └── package.json     # Frontend dependencies
-├── scripts/
-│   └── train_yolov8.py  # Training script (optional)
+├── ultralytics_lib/    # Ultralytics library
+├── data/
+│   └── parking_slots.json # Parking area coordinates
+├── videos/              # Uploaded and processed videos
+├── yolov8n.pt           # YOLOv8 model
 ├── requirements.txt     # Python dependencies
 └── README.md            # This file
 ```
@@ -61,6 +76,7 @@ parking-system/
 ### Prerequisites
 - Python 3.8 or higher
 - Node.js 14 or higher
+- PostgreSQL database
 - pip (Python package manager)
 - npm (Node.js package manager)
 
@@ -76,7 +92,11 @@ parking-system/
    pip install -r requirements.txt
    ```
 
-3. **Configure the system** (optional)
+3. **Set up PostgreSQL database**
+   - Create a database: `createdb parking_db`
+   - Set environment variable: `export DATABASE_URL=postgresql://username:password@localhost/parking_db`
+
+4. **Configure the system** (optional)
    - Edit `backend/config.py` to change settings like video source, IoU threshold, etc.
    - Modify `data/parking_slots.json` to match your parking lot layout
 
@@ -127,14 +147,19 @@ cd frontend
 npm start
 ```
 
-The dashboard will be available at `http://localhost:3000`
+The frontend will run on http://localhost:3001, backend on http://localhost:8000
 
 ## API Endpoints
 
 ### REST Endpoints
-- `GET /parking/status` - Current parking slot statuses
-- `GET /parking/stats` - Parking statistics
-- `GET /parking/history?limit=100` - Historical parking data
+- `GET /parking/stats` - Real-time parking statistics
+- `GET /parking/history?limit=50` - Parking history
+- `POST /upload-video` - Upload video for processing
+- `GET /analytics/heatmap?range=30d` - Occupancy heatmap data
+- `GET /analytics/dwell` - Dwell time analytics
+- `GET /revenue/summary` - Revenue summary
+- `GET /revenue/transactions?page=1` - Revenue transactions
+- `GET /lpr/logs?limit=50` - LPR logs
 
 ### WebSocket
 - `ws://localhost:8000/ws/parking-updates` - Real-time updates
