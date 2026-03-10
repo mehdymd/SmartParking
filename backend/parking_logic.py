@@ -1,5 +1,30 @@
 import json
-from .database import load_parking_slots_from_json
+from database import load_parking_slots_from_json
+
+VEHICLE_CLASS_MAP = {
+    'car':        {'type': 'standard', 'size': 1},
+    'motorcycle': {'type': 'compact',  'size': 0.5},
+    'truck':      {'type': 'large',    'size': 2},
+    'bus':        {'type': 'large',    'size': 2},
+}
+
+SLOT_TYPE_MAP = {
+    'standard': ['A', 'B', 'C'],
+    'compact':  ['M'],
+    'large':    ['T'],
+}
+
+def get_vehicle_type_from_class(class_label):
+    return VEHICLE_CLASS_MAP.get(class_label.lower(), {'type': 'standard', 'size': 1})
+
+def check_slot_type_match(vehicle_type, slot_id):
+    # Slot types based on prefix
+    slot_prefix = slot_id[0] if slot_id else ''
+    allowed_types = []
+    for typ, prefixes in SLOT_TYPE_MAP.items():
+        if slot_prefix in prefixes:
+            allowed_types.append(typ)
+    return vehicle_type in allowed_types
 
 def compute_iou(box1, box2):
     """

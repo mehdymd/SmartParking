@@ -1,0 +1,27 @@
+{
+  "lpr_enabled": true,
+  "lpr_confidence_threshold": 0.5,
+  "lpr_region_hint": "",
+  "abandoned_threshold_minutes": 120,
+  "wrong_way_angle_threshold": 120,
+  "speed_limit_kmh": 10.0,
+  "speed_alert_kmh": 15.0,
+  "pricing_enabled": true,
+  "pricing": {
+    "standard": 2.0,
+    "compact": 1.0,
+    "large": 4.0
+  },
+  "grace_period_minutes": 15,
+  "max_daily_charge": 20.0,
+  "export_enabled": false,
+  "email_enabled": false,
+  "email_recipient": "",
+  "s3_enabled": false,
+  "s3_bucket": "",
+  "lot_lat": 0.0,
+  "lot_lng": 0.0,
+  "pixels_per_meter": 8.0,
+  "entrance_pixel_x": 0,
+  "entrance_pixel_y": 0
+}

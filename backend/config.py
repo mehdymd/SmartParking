@@ -4,7 +4,7 @@ import os
 
 class Config:
     # Database
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://username:password@localhost/parking_db")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Mehdy123@localhost:5435/parking_db")
     
     # YOLO Model
     YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolov8n.pt")
@@ -13,7 +13,7 @@ class Config:
     PARKING_SLOTS_JSON = os.path.join(os.path.dirname(__file__), "../data/parking_slots.json")
     
     # Video Source
-    VIDEO_SOURCE = os.getenv("VIDEO_SOURCE", "0")  # 0 for webcam, or path to video file
+    VIDEO_SOURCE = os.getenv("VIDEO_SOURCE", None)  # 0 for webcam, or path to video file
     
     # Occupancy Threshold
     IOU_THRESHOLD = float(os.getenv("IOU_THRESHOLD", "0.3"))
