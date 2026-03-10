@@ -1,0 +1,22 @@
+import os
+
+# Configuration settings for the Smart Parking Management System
+
+class Config:
+    # Database
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://username:password@localhost/parking_db")
+    
+    # YOLO Model
+    YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolov8n.pt")
+    
+    # Parking Slots
+    PARKING_SLOTS_JSON = os.path.join(os.path.dirname(__file__), "../data/parking_slots.json")
+    
+    # Video Source
+    VIDEO_SOURCE = os.getenv("VIDEO_SOURCE", "0")  # 0 for webcam, or path to video file
+    
+    # Occupancy Threshold
+    IOU_THRESHOLD = float(os.getenv("IOU_THRESHOLD", "0.3"))
+    
+    # Frame Processing
+    FRAME_SKIP = int(os.getenv("FRAME_SKIP", "5"))  # Process every 5th frame

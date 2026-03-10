@@ -1,0 +1,13 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+opencv-python==4.8.1.78
+ultralytics==8.0.222
+torch==2.1.1
+torchvision==0.16.1
+sqlalchemy==2.0.23
+alembic==1.12.1
+pydantic==2.5.0
+python-multipart==0.0.6
+numpy<2
+pillow
+psycopg2-binary
