@@ -66,6 +66,13 @@ class Transaction(Base):
     currency: Mapped[str] = mapped_column(String, default='USD')
     status: Mapped[str] = mapped_column(String, default='completed')
 
+class OccupancyHistory(Base):
+    __tablename__ = "occupancy_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    occupancy_rate: Mapped[float] = mapped_column(Float, nullable=True)
+
 class ExportHistory(Base):
     __tablename__ = "export_history"
 

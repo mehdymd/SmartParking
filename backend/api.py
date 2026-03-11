@@ -1,16 +1,20 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
-from database import get_db, get_all_slots, ParkingHistory, PlateLog, Transaction, ExportHistory
+from database import get_db, get_all_slots, ParkingHistory, PlateLog, Transaction, ExportHistory, OccupancyHistory, update_slot_status
 from parking_logic import get_parking_statistics
 from config import Config
 from datetime import datetime, timedelta
 import json
 import os
+import shutil
+import uuid
+import tempfile
 import base64
-from PIL import Image
 import io
+from PIL import Image
 import numpy as np
 import cv2
 import sys
@@ -49,11 +53,223 @@ async def upload_video(file: UploadFile = File(...)):
         filename = f"{uuid.uuid4()}.mp4"
         with open(f"videos/{filename}", "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        Config.VIDEO_SOURCE = f"videos/{filename}"
         return {"message": f"Video {filename} uploaded successfully", "url": f"/videos/{filename}"}
     except Exception as e:
         print(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/parking/upload-feed")
+async def upload_feed(file: UploadFile = File(...)):
+    """Upload a video or image file and update video source at runtime."""
+    if not file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.jpg', '.png')):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only video and image files are allowed.")
+    
+    temp_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        # Point processing pipeline to this uploaded file
+        Config.VIDEO_SOURCE = temp_path
+        return {"source": temp_path}
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/parking/play-uploaded")
+async def play_uploaded():
+    if os.path.exists("uploaded_video.mp4"):
+        Config.VIDEO_SOURCE = "uploaded_video.mp4"
+        return {"message": "Playing uploaded video"}
+    else:
+        return {"error": "No uploaded video found"}
+
+@app.get("/parking/video-feed")
+async def video_feed():
+    """Stream video frames from the current video source as an MJPEG stream."""
+    # Prefer the processed frames produced by the background pipeline (YOLO + slots + DB updates)
+    if getattr(app.state, "latest_jpeg", None):
+        return StreamingResponse(generate_latest_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+def generate_latest_frames():
+    import time
+    while True:
+        frame_bytes = getattr(app.state, "latest_jpeg", None)
+        if frame_bytes:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        time.sleep(0.05)
+
+
+@app.get("/parking/snapshot")
+async def parking_snapshot():
+    """
+    Capture a single frame from the current video source and return it as a JPEG image.
+    This is used by the slot editor to ensure polygons align with the active feed.
+    """
+    if not Config.VIDEO_SOURCE:
+        raise HTTPException(status_code=404, detail="No active video source")
+
+    cap = cv2.VideoCapture(Config.VIDEO_SOURCE)
+    if not cap.isOpened():
+        cap.release()
+        raise HTTPException(status_code=500, detail="Cannot open video source")
+
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        raise HTTPException(status_code=500, detail="Failed to capture frame")
+
+    ok, buffer = cv2.imencode(".jpg", frame)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to encode frame")
+
+    return Response(content=buffer.tobytes(), media_type="image/jpeg")
+
+def generate_frames():
+    """Generator function to yield video frames as JPEG images."""
+    import time
+
+    if not Config.VIDEO_SOURCE:
+        # Return placeholder frame continuously
+        while True:
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "No video source", (200, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            time.sleep(1)
+        return
+
+    cap = cv2.VideoCapture(Config.VIDEO_SOURCE)
+    if not cap.isOpened():
+        # Fallback to placeholder frames if source cannot be opened
+        while True:
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "Source error", (200, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            time.sleep(1)
+        return
+
+    # Load parking slots once and scale to video resolution
+    parking_polygons = []
+    try:
+        with open(Config.PARKING_SLOTS_JSON, 'r') as f:
+            slots_data = json.load(f)
+        parking_areas = slots_data.get('parking_areas', [])
+    except Exception:
+        parking_areas = []
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1
+
+    frame_width = slots_data.get('frame_width') if 'slots_data' in locals() else None
+    frame_height = slots_data.get('frame_height') if 'slots_data' in locals() else None
+
+    if frame_width and frame_height:
+        scale_x = width / frame_width
+        scale_y = height / frame_height
+    else:
+        scale_x = scale_y = 1.0
+
+    for area in parking_areas:
+        points = []
+        for p in area:
+            # Support both dict {"x","y"} and [x, y] formats
+            if isinstance(p, dict):
+                x, y = p.get('x', 0), p.get('y', 0)
+            else:
+                x, y = p[0], p[1]
+            points.append((int(x * scale_x), int(y * scale_y)))
+        if len(points) >= 2:
+            parking_polygons.append(np.array(points, np.int32))
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                # Loop playback for file-based sources
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
+
+            # Draw parking slot polygons
+            for poly in parking_polygons:
+                cv2.polylines(frame, [poly], isClosed=True, color=(0, 255, 0), thickness=2)
+
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                continue
+            frame_bytes = buffer.tobytes()
+
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+    finally:
+        cap.release()
+
+
+@app.post("/parking/override")
+def parking_override(data: dict, db: Session = Depends(get_db)):
+    """
+    Manually override the status of a parking slot.
+    Expects: { "slot_id": "...", "status": "available" | "occupied", ... }
+    """
+    slot_id = data.get("slot_id")
+    status = data.get("status")
+
+    if not slot_id or status not in {"available", "occupied"}:
+        raise HTTPException(status_code=400, detail="Invalid slot_id or status")
+
+    slot = update_slot_status(db, slot_id, status)
+    return {"message": "Override applied", "slot": {"id": slot.id, "status": slot.status}}
+
+@app.get("/parking/camera-status")
+async def camera_status():
+    """Check if the current video source is active and reading frames."""
+    try:
+        cap = cv2.VideoCapture(Config.VIDEO_SOURCE)
+        is_open = cap.isOpened()
+        if is_open:
+            ret, _ = cap.read()
+            is_open = ret
+        cap.release()
+        return {"active": is_open}
+    except Exception as e:
+        print(f"Camera status error: {e}")
+        return {"active": False}
+
+@app.post("/parking/set-source")
+async def set_source(data: dict):
+    """Set the video source at runtime (e.g., to webcam or file path)."""
+    source = data.get('source')
+    if source is None:
+      Config.VIDEO_SOURCE = None
+      return {"message": "Source cleared"}
+
+    # Normalize webcam source
+    if source == "0":
+        source = 0
+
+    try:
+        cap = cv2.VideoCapture(source)
+        valid = cap.isOpened()
+        cap.release()
+        if valid:
+            Config.VIDEO_SOURCE = source
+            return {"message": "Source updated successfully"}
+        else:
+            return {"error": "Source is invalid or not accessible"}
+    except Exception as e:
+        print(f"Set source error: {e}")
+        return {"error": "Source validation failed"}
 
 from pydantic import BaseModel
 
@@ -81,9 +297,25 @@ async def detect_frame(request: DetectRequest):
 
 @app.post("/update-parking-slots")
 async def update_parking_slots(data: dict):
-    """Update parking slots JSON with user annotations."""
+    """
+    Update the parking slots configuration.
+    """
     parking_slots = data.get('parking_slots', [])
+    entry_zone = data.get('entry_zone')
+    exit_zone = data.get('exit_zone')
+
     json_data = {"parking_areas": parking_slots}
+    if 'frame_width' in data:
+        json_data['frame_width'] = data['frame_width']
+        json_data['frame_height'] = data['frame_height']
+
+    # Optional global entry/exit zones for revenue/flow analytics
+    if entry_zone is not None:
+        json_data['entry_zone'] = entry_zone
+    if exit_zone is not None:
+        json_data['exit_zone'] = exit_zone
+    
+    os.makedirs(os.path.dirname(Config.PARKING_SLOTS_JSON), exist_ok=True)
     with open(Config.PARKING_SLOTS_JSON, 'w') as f:
         json.dump(json_data, f)
     
@@ -105,11 +337,15 @@ def get_parking_status(db: Session = Depends(get_db)):
 
 @app.get("/parking/slots")
 def get_parking_slots():
-    """Get the current parking slot polygons."""
+    """Get the current parking slot polygons and optional entry/exit zones."""
     try:
         with open(Config.PARKING_SLOTS_JSON, 'r') as f:
             data = json.load(f)
-        return {"polygons": data.get("parking_areas", [])}
+        return {
+            "polygons": data.get("parking_areas", []),
+            "entry_zone": data.get("entry_zone"),
+            "exit_zone": data.get("exit_zone")
+        }
     except:
         return {"polygons": []}
 
@@ -251,10 +487,24 @@ def get_dwell_chart(zone: str = None, range: str = "7d", db: Session = Depends(g
     result = [{"hour": int(h[0]), "avg_dwell": float(h[1])} for h in hourly_avgs]
     return {"data": result}
 
+@app.get("/analytics/occupancy-history")
+def get_occupancy_history(limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Get occupancy history for charting.
+    """
+    history = db.query(OccupancyHistory).order_by(OccupancyHistory.timestamp.desc()).limit(limit).all()
+    result = [{"time": h.timestamp.isoformat(), "occupancy": h.occupancy_rate} for h in history]
+    return {"data": result[::-1]}
+
+
 @app.get("/analytics/heatmap")
 def get_analytics_heatmap(range: str = "30d", db: Session = Depends(get_db)):
+    """
+    Return an occupancy heatmap per zone per hour.
+    Currently uses a placeholder implementation in heatmap.py.
+    """
     days = 7 if range == "7d" else 30
-    matrix = get_heatmap(days)
+    matrix = get_heatmap(range_days=days)
     return {"matrix": matrix}
 
 @app.post("/export/trigger")

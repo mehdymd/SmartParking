@@ -7,7 +7,7 @@ import NavigationMap from '../NavigationMap';
 import AnalyticsSection from '../AnalyticsSection';
 
 const Dashboard = ({ uploadedSrc, onUpload }) => {
-  const [cameraOn, setCameraOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(false);
   return (
     <div style={{
       maxWidth: '1400px',
@@ -33,7 +33,12 @@ const Dashboard = ({ uploadedSrc, onUpload }) => {
         <StatsPanel />
 
         {/* Controls Panel */}
-        <Controls onUpload={onUpload} cameraOn={cameraOn} setCameraOn={setCameraOn} />
+        <Controls
+          onUpload={onUpload}
+          cameraOn={cameraOn}
+          setCameraOn={setCameraOn}
+          hasUploaded={!!uploadedSrc}
+        />
       </div>
 
       {/* Full-width Navigation Map */}

@@ -18,7 +18,15 @@ const Header = ({ currentPage, setCurrentPage }) => {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const pages = ['Dashboard', 'Analytics', 'LPR', 'Revenue', 'Alerts', 'Settings'];
+  const pageNames = {
+    'SlotEditor': 'Slot Editor',
+    'LPR': 'LPR',
+    'Revenue': 'Revenue',
+    'Alerts': 'Alerts',
+    'Settings': 'Settings'
+  };
+
+  const pages = ['Dashboard', 'Analytics', 'SlotEditor', 'Revenue', 'Alerts', 'Settings'];
 
   return (
     <header style={{
@@ -78,7 +86,7 @@ const Header = ({ currentPage, setCurrentPage }) => {
         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
           Session: {formatTime(sessionTime)}
         </span>
-        <button style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative' }}>
+        <button style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative' }} onClick={() => setCurrentPage('Alerts')}>
           <Bell size={16} color="var(--text-primary)" />
           <div style={{
             position: 'absolute',
@@ -111,9 +119,6 @@ const Header = ({ currentPage, setCurrentPage }) => {
         }}>
           SP
         </div>
-        <button onClick={() => setCurrentPage('Settings')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-          <Settings size={16} color="var(--text-primary)" />
-        </button>
       </div>
 
       <style>

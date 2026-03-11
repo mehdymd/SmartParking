@@ -1,138 +1,134 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 
 const LiveFeed = ({ uploadedSrc, cameraOn }) => {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [stream, setStream] = useState(null);
-  const [annotatedUrl, setAnnotatedUrl] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [uploadedPlaying, setUploadedPlaying] = useState(true);
 
-  useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/parking-updates');
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.annotated_url) {
-        setAnnotatedUrl(data.annotated_url);
-      }
-    };
-    return () => ws.close();
-  }, []);
-
-  useEffect(() => {
-    if (annotatedUrl) {
-      if (videoRef.current) {
-        videoRef.current.src = `http://localhost:8000${annotatedUrl}`;
-        videoRef.current.srcObject = null;
-        videoRef.current.load();
-        videoRef.current.play().then(() => setIsPlaying(true)).catch(e => console.error('Play failed', e));
-      }
-    }
-  }, [annotatedUrl]);
-
+  // When an upload is present, refresh the processed MJPEG feed key
   useEffect(() => {
     if (uploadedSrc) {
-      if (videoRef.current) {
-        videoRef.current.src = `http://localhost:8000${uploadedSrc}`;
-        videoRef.current.srcObject = null;
-        videoRef.current.load();
-        videoRef.current.play().then(() => setIsPlaying(true)).catch(e => console.error('Play failed', e));
-      }
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        setStream(null);
-      }
-    } else if (cameraOn) {
-      startCamera();
-    } else {
-      stopCamera();
+      setRefreshKey(Date.now());
+      setUploadedPlaying(true);
     }
-  }, [uploadedSrc, cameraOn]);
-
-  useEffect(() => {
-    if (!cameraOn) {
-      stopCamera();
-    }
-  }, [cameraOn]); // eslint-disable-next-line react-hooks/exhaustive-deps
-
-  const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.src = null;
-        setIsPlaying(true);
-      }
-    } catch (err) {
-      console.error('Error starting camera', err);
-    }
-  };
-
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
-    setIsPlaying(false);
-  };
-
-  const togglePlayPause = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        videoRef.current.play();
-        setIsPlaying(true);
-      }
-    }
-  };
+  }, [uploadedSrc]);
 
   const restart = () => {
-    if (uploadedSrc) {
-      if (videoRef.current) {
-        videoRef.current.currentTime = 0;
-        videoRef.current.play();
-        setIsPlaying(true);
-      }
-    } else {
-      stopCamera();
-      startCamera();
+    if (cameraOn) {
+      setRefreshKey(Date.now());
+    } else if (uploadedSrc) {
+      // For processed uploads we show an MJPEG image; just refresh the feed
+      setRefreshKey(Date.now());
     }
   };
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} />
-      <video
-        ref={videoRef}
-        autoPlay={isPlaying}
-        muted
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-      />
-      {/* HUD */}
-      <div style={{
-        position: 'absolute',
-        top: '10px',
-        left: '10px',
-        backgroundColor: 'rgba(255,0,0,0.8)',
-        color: 'white',
-        padding: '4px 8px',
-        borderRadius: '4px',
-        fontSize: '12px'
-      }}>
-        {uploadedSrc ? 'VIDEO' : cameraOn ? 'LIVE' : 'OFF'}
-      </div>
-      {/* Controls */}
-      <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '8px' }}>
-        <button onClick={togglePlayPause} style={{ padding: '6px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '4px' }}>
-          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-        </button>
-        <button onClick={restart} style={{ padding: '6px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '4px' }}>
-          <RotateCcw size={16} />
-        </button>
-      </div>
+      {cameraOn ? (
+        <>
+          <img
+            src={`http://localhost:8000/parking/video-feed?key=${refreshKey}`}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            alt="Live Camera Feed"
+            onError={(e) => (e.target.style.display = 'none')}
+          />
+          {/* HUD */}
+          <div style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            backgroundColor: 'rgba(0,255,0,0.8)',
+            color: 'white',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            fontSize: '12px'
+          }}>
+            LIVE CAMERA
+          </div>
+        </>
+      ) : uploadedSrc ? (
+        <>
+          <img
+            src={
+              uploadedPlaying
+                ? `http://localhost:8000/parking/video-feed?key=${refreshKey}`
+                : `http://localhost:8000/parking/snapshot?key=${refreshKey}`
+            }
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            alt="Annotated Video Feed"
+            onError={(e) => (e.target.style.display = 'none')}
+          />
+          {/* HUD */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '10px',
+              left: '10px',
+              backgroundColor: 'rgba(255,0,0,0.8)',
+              color: 'white',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '12px'
+            }}
+          >
+            PROCESSED VIDEO
+          </div>
+          {/* Play / Pause / Replay controls for uploaded video */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '10px',
+              left: '10px',
+              display: 'flex',
+              gap: '8px'
+            }}
+          >
+            <button
+              onClick={() => setUploadedPlaying((p) => !p)}
+              style={{
+                padding: '6px 10px',
+                background: 'rgba(0,0,0,0.5)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              {uploadedPlaying ? 'Pause' : 'Play'}
+            </button>
+            <button
+              onClick={() => {
+                setRefreshKey(Date.now());
+                setUploadedPlaying(true);
+              }}
+              style={{
+                padding: '6px 10px',
+                background: 'rgba(0,0,0,0.5)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              Replay
+            </button>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)', fontSize: '18px' }}>
+          No live feed active. Upload a video or start camera.
+        </div>
+      )}
+      {/* Controls - show refresh when camera feed is active */}
+      {cameraOn && (
+        <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '8px' }}>
+          <button onClick={restart} style={{ padding: '6px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '4px' }}>
+            <RotateCcw size={16} />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

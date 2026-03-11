@@ -1,11 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Camera, CameraOff, Wrench, FileText, MoreVertical, Upload } from 'lucide-react';
 
-const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
+const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
+  const [manualOverride, setManualOverride] = useState(false);
   const [reportDropdown, setReportDropdown] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
+  const fileInputRef = useRef(null);
 
-  const toggleCamera = () => setCameraOn(!cameraOn);
+  const toggleCamera = async () => {
+    const next = !cameraOn;
+    setCameraOn(next);
+
+    try {
+      if (next) {
+        // Inform backend to use default webcam (index 0) as video source
+        await fetch('http://localhost:8000/parking/set-source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: 0 })
+        });
+      } else {
+        // Camera off: don't force-clear backend source (upload may be active)
+      }
+    } catch (e) {
+      console.error('Error syncing camera source with backend', e);
+    }
+  };
 
   const handleFileChange = (e) => {
     setUploadedFile(e.target.files[0]);
@@ -16,18 +36,24 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
     const formData = new FormData();
     formData.append('file', uploadedFile);
     try {
-      const response = await fetch('http://localhost:8000/upload-video', {
+      const response = await fetch('http://localhost:8000/parking/upload-feed', {
         method: 'POST',
         body: formData,
       });
-      if (response.ok) {
-        const data = await response.json();
-        onUpload(data.url);
-        alert(data.message);
-      } else {
+      if (!response.ok) {
         alert('Upload failed');
+        return;
+      }
+
+      const data = await response.json();
+      setUploadedFile(null);
+      alert('Upload successful');
+      if (onUpload) {
+        // Store the backend-provided source (or any truthy value)
+        onUpload(data.source || true);
       }
     } catch (error) {
+      console.error('Upload error:', error);
       alert('Upload failed');
     }
   };
@@ -65,9 +91,35 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
           {cameraOn ? 'Stop Camera' : 'Start Camera'}
         </button>
 
-        <button className="btn btn-green" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-          <Wrench size={16} />
-          Manual Override
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          onChange={handleFileChange}
+          style={{
+            width: '100%',
+            padding: '10px',
+            border: '1px solid var(--panel-border)',
+            borderRadius: '4px',
+            backgroundColor: 'var(--panel-bg)',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            marginBottom: '8px'
+          }}
+        />
+
+        <button className="btn btn-purple" onClick={handleUpload} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <Upload size={16} />
+          Upload Video
+        </button>
+
+        <button
+          className="btn btn-blue"
+          disabled={!hasUploaded}
+          onClick={() => setCameraOn(false)}
+          style={{ width: '100%', opacity: hasUploaded ? 1 : 0.5, cursor: hasUploaded ? 'pointer' : 'not-allowed' }}
+        >
+          Play Uploaded Video
         </button>
 
         <div style={{ position: 'relative' }}>
@@ -81,23 +133,35 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
               top: '100%',
               left: 0,
               right: 0,
+              backgroundColor: 'var(--panel-bg)',
+              border: '1px solid var(--panel-border)',
+              borderRadius: '8px',
+              padding: '8px',
               zIndex: 10,
-              padding: '8px 0',
-              marginTop: '4px'
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
             }}>
-              <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 16px' }}>Export CSV</button>
-              <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 16px' }}>Export PDF</button>
-              <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 16px' }}>Email Report</button>
+              <button style={{
+              }} onMouseEnter={(e) => e.target.style.backgroundColor = '#1e7e34'} onMouseLeave={(e) => e.target.style.backgroundColor = '#28a745'}>
+                Export PDF
+              </button>
+              <button onClick={() => fileInputRef.current?.click()} style={{ backgroundColor: 'purple', color: 'white' }}>Upload Video</button>
+              <button style={{
+                width: '100%',
+                backgroundColor: 'orange',
+                color: 'white',
+                padding: '8px',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                marginBottom: '4px',
+                transition: 'background-color 0.2s',
+                fontWeight: 'bold'
+              }} onClick={() => fetch('/export/trigger', { method: 'POST' })} onMouseEnter={(e) => e.target.style.backgroundColor = '#e0a800'} onMouseLeave={(e) => e.target.style.backgroundColor = '#ffc107'}>
+                Email Report
+              </button>
             </div>
           )}
         </div>
-
-        <input type="file" accept="video/*" onChange={handleFileChange} style={{ marginBottom: '8px' }} />
-
-        <button className="btn btn-purple" onClick={handleUpload} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-          <Upload size={16} />
-          Upload Video
-        </button>
       </div>
 
       <div style={{ fontFamily: 'JetBrains Mono', fontSize: '12px', color: 'var(--text-primary)' }}>
