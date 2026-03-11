@@ -1,65 +1,95 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+import React, { useMemo, useState, useEffect } from 'react';
 import { findNearestSlot } from '../utils/navigationUtils';
 
 const NavigationMap = () => {
   const [settings, setSettings] = useState({});
   const [slots, setSlots] = useState({});
   const [nearest, setNearest] = useState(null);
+  const [polygons, setPolygons] = useState([]);
 
   useEffect(() => {
     fetchSettings();
     fetchSlots();
+    fetchPolygons();
+    const interval = setInterval(fetchSlots, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    if (Object.keys(slots).length && settings.entrance_pixel_x) {
-      const availableSlots = Object.keys(slots).map(id => ({
-        id,
-        status: slots[id],
-        cx: 0, // Placeholder, assume pixel coords
-        cy: 0
-      })).filter(s => s.status === 'available');
+    if (!Object.keys(slots).length) return;
+    const entrancePx = settings.entrance_pixel_x != null
+      ? { x: Number(settings.entrance_pixel_x), y: Number(settings.entrance_pixel_y) }
+      : null;
+    const ppm = Number(settings.pixels_per_meter || 0);
 
-      const entrancePx = { x: settings.entrance_pixel_x, y: settings.entrance_pixel_y };
-      const nearestSlot = findNearestSlot(availableSlots, entrancePx, settings.pixels_per_meter);
-      if (nearestSlot) {
-        const walkTime = Math.round((nearestSlot.dist / settings.pixels_per_meter) / 1.2 / 10) * 10;
-        setNearest({ ...nearestSlot, walkTime });
+    // Compute centroids for polygons so "nearest" is real (not placeholder zeros).
+    const slotPoints = Object.keys(slots).map((id) => {
+      const idx = Number(id.replace('S', '')) - 1;
+      const poly = polygons[idx];
+      let cx = 0;
+      let cy = 0;
+      if (Array.isArray(poly) && poly.length) {
+        const pts = poly.map(p => ({ x: Number(p.x ?? p[0] ?? 0), y: Number(p.y ?? p[1] ?? 0) }));
+        cx = pts.reduce((acc, p) => acc + p.x, 0) / pts.length;
+        cy = pts.reduce((acc, p) => acc + p.y, 0) / pts.length;
       }
+      return { id, status: slots[id], cx, cy };
+    });
+
+    const nearestSlot = entrancePx ? findNearestSlot(slotPoints, entrancePx, ppm || 1) : slotPoints.find(s => s.status === 'available');
+    if (!nearestSlot) {
+      setNearest(null);
+      return;
     }
-  }, [slots, settings]);
+    const distMeters = entrancePx && ppm ? (nearestSlot.dist / ppm) : null;
+    const walkTime = distMeters != null ? Math.round((distMeters / 1.2) / 10) * 10 : null;
+    setNearest({ ...nearestSlot, distMeters, walkTime });
+  }, [slots, settings, polygons]);
 
   const fetchSettings = async () => {
-    const response = await fetch('http://localhost:8000/settings');
-    const data = await response.json();
-    setSettings(data);
+    try {
+      const response = await fetch('http://localhost:8000/settings');
+      const data = await response.json();
+      setSettings(data || {});
+    } catch {
+      setSettings({});
+    }
   };
 
   const fetchSlots = async () => {
-    const response = await fetch('http://localhost:8000/parking/status');
-    const data = await response.json();
-    setSlots(data.status || {});
+    try {
+      const response = await fetch('http://localhost:8000/parking/status');
+      const data = await response.json();
+      setSlots(data.status || {});
+    } catch {
+      setSlots({});
+    }
   };
+
+  const fetchPolygons = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/parking/slots');
+      const data = await response.json();
+      setPolygons(Array.isArray(data.polygons) ? data.polygons : []);
+    } catch {
+      setPolygons([]);
+    }
+  };
+
+  const availableCount = useMemo(
+    () => Object.values(slots).filter((s) => s === 'available').length,
+    [slots]
+  );
 
   return (
     <div className="glass" style={{ padding: '20px', height: '100%' }}>
       <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', color: 'var(--text-primary)' }}>Navigation Map</h2>
 
-      <div style={{ height: '200px', marginBottom: '16px' }}>
-        {settings.lot_lat && (
-          <MapContainer center={[settings.lot_lat, settings.lot_lng]} zoom={18} style={{ height: '100%', width: '100%' }}>
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            />
-            <Marker position={[settings.lot_lat, settings.lot_lng]}>
-              <Popup>Entrance</Popup>
-            </Marker>
-            {/* Add markers for slots if lat/lng available */}
-          </MapContainer>
-        )}
+      <div style={{ marginBottom: '16px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
+        <div>Available slots: <span style={{ color: 'var(--green)', fontWeight: 700 }}>{availableCount}</span></div>
+        <div>
+          Entrance reference: {settings.entrance_pixel_x != null ? `(${settings.entrance_pixel_x}, ${settings.entrance_pixel_y}) px` : 'Not configured'}
+        </div>
       </div>
 
       {nearest && (
@@ -70,7 +100,13 @@ const NavigationMap = () => {
           borderRadius: '8px',
           textAlign: 'center'
         }}>
-          🟢 Slot {nearest.id} — Zone {nearest.id[0]} — ~{nearest.walkTime} sec walk
+          Recommended: Slot {nearest.id}
+          {nearest.walkTime != null ? ` — ~${nearest.walkTime} sec walk` : ''}
+        </div>
+      )}
+      {!nearest && (
+        <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+          No available slots found.
         </div>
       )}
     </div>

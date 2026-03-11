@@ -5,8 +5,9 @@ import ActivityLog from '../ActivityLog';
 import Controls from '../Controls';
 import NavigationMap from '../NavigationMap';
 import AnalyticsSection from '../AnalyticsSection';
+import SessionsTable from '../SessionsTable';
 
-const Dashboard = ({ uploadedSrc, onUpload }) => {
+const Dashboard = ({ uploadedSrc, onUpload, wsStatus, wsData }) => {
   const [cameraOn, setCameraOn] = useState(false);
   return (
     <div style={{
@@ -30,7 +31,7 @@ const Dashboard = ({ uploadedSrc, onUpload }) => {
       {/* Right Column */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
         {/* Real-time Stats Panel */}
-        <StatsPanel />
+        <StatsPanel wsStatus={wsStatus} liveStats={wsData?.stats} />
 
         {/* Controls Panel */}
         <Controls
@@ -39,6 +40,9 @@ const Dashboard = ({ uploadedSrc, onUpload }) => {
           setCameraOn={setCameraOn}
           hasUploaded={!!uploadedSrc}
         />
+
+        {/* Sessions */}
+        <SessionsTable />
       </div>
 
       {/* Full-width Navigation Map */}

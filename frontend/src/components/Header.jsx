@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Settings } from 'lucide-react';
+import { Bell } from 'lucide-react';
 
-const Header = ({ currentPage, setCurrentPage }) => {
+const Header = ({ currentPage, setCurrentPage, wsConnected = true }) => {
   const [sessionTime, setSessionTime] = useState(0);
 
   useEffect(() => {
@@ -16,14 +16,6 @@ const Header = ({ currentPage, setCurrentPage }) => {
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const pageNames = {
-    'SlotEditor': 'Slot Editor',
-    'LPR': 'LPR',
-    'Revenue': 'Revenue',
-    'Alerts': 'Alerts',
-    'Settings': 'Settings'
   };
 
   const pages = ['Dashboard', 'Analytics', 'SlotEditor', 'Revenue', 'Alerts', 'Settings'];
@@ -78,10 +70,12 @@ const Header = ({ currentPage, setCurrentPage }) => {
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            backgroundColor: 'var(--green)',
+            backgroundColor: wsConnected ? 'var(--green)' : 'var(--red)',
             animation: 'pulse 2s infinite'
           }}></div>
-          <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>System Status: Online</span>
+          <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
+            System Status: {wsConnected ? 'Connected' : 'Disconnected'}
+          </span>
         </div>
         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
           Session: {formatTime(sessionTime)}

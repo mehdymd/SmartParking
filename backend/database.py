@@ -82,6 +82,16 @@ class ExportHistory(Base):
     destination: Mapped[str] = mapped_column(String, nullable=True)  # 'local','email','s3'
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
+class ParkingSession(Base):
+    __tablename__ = "parking_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    slot_id: Mapped[str] = mapped_column(String, index=True)
+    entry_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    exit_time: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=True)
+
 def create_tables():
     Base.metadata.create_all(bind=engine)
 

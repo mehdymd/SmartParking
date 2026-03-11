@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Pause, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 
 const LiveFeed = ({ uploadedSrc, cameraOn }) => {
   const [refreshKey, setRefreshKey] = useState(0);

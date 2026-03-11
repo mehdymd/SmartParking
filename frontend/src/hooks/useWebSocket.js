@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 
 export const useWebSocket = () => {
   const [status, setStatus] = useState('disconnected');
-  const [data, setData] = useState({ slots: {}, stats: {}, alerts: [] });
+  const [data, setData] = useState({ status: {}, stats: {}, alerts: [] });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
-  const reconnectDelayRef = useRef(5000); // Start with 5s
+  const reconnectDelayMs = 3000;
 
   const connect = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
@@ -15,21 +15,21 @@ export const useWebSocket = () => {
 
     wsRef.current.onopen = () => {
       setStatus('connected');
-      reconnectDelayRef.current = 5000; // Reset delay
     };
 
     wsRef.current.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
         switch (message.type) {
-          case 'slot_update':
+          case 'update':
             setData(prev => ({
               ...prev,
-              slots: { ...prev.slots, [message.slot_id]: { status: message.status, vehicle_type: message.vehicle_type, plate: message.plate, speed_kmh: message.speed_kmh } }
+              status: message.status || {},
+              stats: message.stats || {},
             }));
             break;
-          case 'stats_update':
-            setData(prev => ({ ...prev, stats: { total: message.total, available: message.available, occupied: message.occupied, rate: message.rate } }));
+          case 'alert':
+            setData(prev => ({ ...prev, alerts: [...prev.alerts, { ...message, ts: Date.now() }] }));
             break;
           case 'wrong_way_alert':
           case 'speed_alert':
@@ -53,10 +53,7 @@ export const useWebSocket = () => {
 
     wsRef.current.onclose = () => {
       setStatus('disconnected');
-      reconnectTimeoutRef.current = setTimeout(() => {
-        reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 30000); // Exponential backoff, max 30s
-        connect();
-      }, reconnectDelayRef.current);
+      reconnectTimeoutRef.current = setTimeout(() => connect(), reconnectDelayMs);
     };
 
     wsRef.current.onerror = () => {

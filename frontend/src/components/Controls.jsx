@@ -1,12 +1,27 @@
-import React, { useState, useRef } from 'react';
-import { Camera, CameraOff, Wrench, FileText, MoreVertical, Upload } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { Camera, CameraOff, FileText, MoreVertical, Upload } from 'lucide-react';
 
-const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
-  const [manualOverride, setManualOverride] = useState(false);
+const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
   const [reportDropdown, setReportDropdown] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
-  const [hasUploaded, setHasUploaded] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState({ active: false, open: false, source: null });
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/parking/camera-status');
+        if (!res.ok) return;
+        const data = await res.json();
+        setCameraStatus(data);
+      } catch {
+        setCameraStatus({ active: false, open: false, source: null });
+      }
+    };
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, []);
 
   const toggleCamera = async () => {
     const next = !cameraOn;
@@ -14,18 +29,27 @@ const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
 
     try {
       if (next) {
-        // Start camera
-        await fetch('http://localhost:8000/parking/start-camera', {
-          method: 'POST'
+        // Switch to webcam source
+        const response = await fetch('http://localhost:8000/parking/set-source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: "0" })
         });
+        if (!response.ok) {
+          throw new Error('Camera not available');
+        }
       } else {
-        // Stop camera
-        await fetch('http://localhost:8000/parking/stop-camera', {
-          method: 'POST'
+        // Clear source
+        await fetch('http://localhost:8000/parking/set-source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: null })
         });
       }
     } catch (e) {
       console.error('Error syncing camera source with backend', e);
+      setCameraOn(!next); // Revert state
+      alert(`Failed to ${next ? 'start' : 'stop'} camera: ${e.message}`);
     }
   };
 
@@ -88,15 +112,24 @@ const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          <div style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: cameraStatus?.active ? 'var(--green)' : 'var(--red)'
+          }} />
+          Camera: {cameraStatus?.active ? 'active' : 'disconnected'}
+        </div>
         <button className={`btn ${cameraOn ? 'btn-red' : 'btn-blue'}`} onClick={toggleCamera} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
           {cameraOn ? <CameraOff size={16} /> : <Camera size={16} />}
-          {cameraOn ? 'Stop Camera' : 'Start Camera'}
+          {cameraOn ? 'Stop Webcam' : 'Use Webcam'}
         </button>
 
         <input
           ref={fileInputRef}
           type="file"
-          accept="video/*"
+          accept="video/*,image/*"
           onChange={handleFileChange}
           style={{
             width: '100%',
@@ -110,31 +143,9 @@ const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
           }}
         />
 
-        <button className="btn btn-purple" onClick={handleUpload} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+        <button className="btn btn-green" onClick={handleUpload} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
           <Upload size={16} />
-          Upload Video
-        </button>
-
-        <button
-          className="btn btn-blue"
-          disabled={!hasUploaded}
-          onClick={async () => {
-            try {
-              const response = await fetch('http://localhost:8000/parking/play-uploaded', { method: 'POST' });
-              if (response.ok) {
-                setCameraOn(false);
-                alert('Playing uploaded video');
-              } else {
-                alert('No uploaded video found');
-              }
-            } catch (error) {
-              console.error('Error playing uploaded video:', error);
-              alert('Failed to play uploaded video');
-            }
-          }}
-          style={{ width: '100%', opacity: hasUploaded ? 1 : 0.5, cursor: hasUploaded ? 'pointer' : 'not-allowed' }}
-        >
-          Play Uploaded Video
+          Upload Feed
         </button>
 
         <div style={{ position: 'relative' }}>

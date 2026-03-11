@@ -81,6 +81,47 @@ def determine_occupancy(vehicle_detections, parking_slots, iou_threshold=0.3):
         occupancy[slot_id] = 'occupied' if occupied else 'available'
     return occupancy
 
+
+def _point_in_polygon(point, polygon):
+    """
+    Ray casting algorithm. polygon is list of [x,y] floats.
+    """
+    if not polygon or len(polygon) < 3:
+        return False
+    x, y = point
+    inside = False
+    n = len(polygon)
+    x1, y1 = polygon[0]
+    for i in range(1, n + 1):
+        x2, y2 = polygon[i % n]
+        if ((y1 > y) != (y2 > y)) and (x < (x2 - x1) * (y - y1) / ((y2 - y1) or 1e-9) + x1):
+            inside = not inside
+        x1, y1 = x2, y2
+    return inside
+
+
+def determine_occupancy_by_centroid(vehicle_detections, slot_polygons):
+    """
+    Determine occupancy based on whether the detection centroid lies inside
+    the slot polygon.
+
+    Args:
+        vehicle_detections: List [{'bbox': [x1,y1,x2,y2], ...}]
+        slot_polygons: Dict {slot_id: [[x,y], ...]}
+    """
+    occupancy = {}
+    for slot_id, poly in (slot_polygons or {}).items():
+        occupied = False
+        for det in vehicle_detections:
+            x1, y1, x2, y2 = det["bbox"]
+            cx = (x1 + x2) / 2.0
+            cy = (y1 + y2) / 2.0
+            if _point_in_polygon((cx, cy), poly):
+                occupied = True
+                break
+        occupancy[slot_id] = "occupied" if occupied else "available"
+    return occupancy
+
 def get_parking_statistics(slot_statuses):
     """
     Calculate parking statistics.

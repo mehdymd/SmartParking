@@ -3,7 +3,17 @@ from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
-from database import get_db, get_all_slots, ParkingHistory, PlateLog, Transaction, ExportHistory, OccupancyHistory, update_slot_status
+from database import (
+    get_db,
+    get_all_slots,
+    ParkingHistory,
+    PlateLog,
+    Transaction,
+    ExportHistory,
+    OccupancyHistory,
+    ParkingSession,
+    update_slot_status,
+)
 from parking_logic import get_parking_statistics
 from config import Config
 from datetime import datetime, timedelta
@@ -61,19 +71,25 @@ async def upload_video(file: UploadFile = File(...)):
 @app.post("/parking/upload-feed")
 async def upload_feed(file: UploadFile = File(...)):
     """Upload a video or image file and update video source at runtime."""
-    if not file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.jpg', '.png')):
+    if not file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.jpg', '.jpeg', '.png', '.bmp', '.webp')):
         raise HTTPException(status_code=400, detail="Invalid file type. Only video and image files are allowed.")
     
-    temp_path = "uploaded_video.mp4"
     try:
+        ext = os.path.splitext(file.filename)[1].lower() or ".mp4"
+        fd, temp_path = tempfile.mkstemp(prefix="uploaded_", suffix=ext)
+        os.close(fd)
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        # Point processing pipeline to this uploaded file
+
+        # Point processing pipeline to this uploaded file (hot-swap, no restart).
         Config.VIDEO_SOURCE = temp_path
-        return {"source": temp_path}
+        return {"message": "Feed uploaded and source updated", "source": temp_path}
     except Exception as e:
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
+        try:
+            if "temp_path" in locals() and temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/parking/play-uploaded")
@@ -179,7 +195,9 @@ def generate_frames():
     # Load parking slots once and scale to video resolution
     parking_polygons = []
     try:
-        with open(Config.PARKING_SLOTS_JSON, 'r') as f:
+        # Use the same slots file selection logic as the main processing loop.
+        slots_path = _get_slots_path_for_current_source()
+        with open(slots_path, 'r') as f:
             slots_data = json.load(f)
         parking_areas = slots_data.get('parking_areas', [])
     except Exception:
@@ -251,16 +269,25 @@ def parking_override(data: dict, db: Session = Depends(get_db)):
 async def camera_status():
     """Check if the current video source is active and reading frames."""
     try:
+        # Prefer background pipeline state (true "currently open and reading frames").
+        if hasattr(app.state, "camera_open"):
+            return {
+                "active": bool(getattr(app.state, "camera_open", False) and getattr(app.state, "camera_last_read_ok", False)),
+                "open": bool(getattr(app.state, "camera_open", False)),
+                "source": getattr(app.state, "camera_source", None),
+            }
+
+        # Fallback: best-effort probe.
         cap = cv2.VideoCapture(Config.VIDEO_SOURCE)
         is_open = cap.isOpened()
+        ok = False
         if is_open:
-            ret, _ = cap.read()
-            is_open = ret
+            ok, _ = cap.read()
         cap.release()
-        return {"active": is_open}
+        return {"active": bool(is_open and ok), "open": bool(is_open), "source": Config.VIDEO_SOURCE}
     except Exception as e:
         print(f"Camera status error: {e}")
-        return {"active": False}
+        return {"active": False, "open": False, "source": getattr(Config, "VIDEO_SOURCE", None)}
 
 @app.post("/parking/set-source")
 async def set_source(data: dict):
@@ -287,6 +314,33 @@ async def set_source(data: dict):
         print(f"Set source error: {e}")
         return {"error": "Source validation failed"}
 
+
+@app.get("/parking/sessions")
+async def get_sessions(limit: int = 50, db: Session = Depends(get_db)):
+    """
+    Get recent parking sessions (slot occupancy durations).
+    """
+    try:
+        sessions = (
+            db.query(ParkingSession)
+            .order_by(ParkingSession.entry_time.desc())
+            .limit(limit)
+            .all()
+        )
+        return {
+            "sessions": [
+                {
+                    "slot_id": s.slot_id,
+                    "entry_time": s.entry_time.isoformat() if s.entry_time else None,
+                    "exit_time": s.exit_time.isoformat() if s.exit_time else None,
+                    "duration_minutes": s.duration_minutes,
+                }
+                for s in sessions
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load sessions: {e}")
+
 from pydantic import BaseModel
 
 class DetectRequest(BaseModel):
@@ -311,6 +365,17 @@ async def detect_frame(request: DetectRequest):
     img_base64 = base64.b64encode(encoded_img.tobytes()).decode('utf-8')
     return {"image": img_base64}
 
+def _get_slots_path_for_current_source():
+    """
+    Decide which slots JSON to use based on the active video source.
+    Webcam (0) gets its own layout; everything else uses the default file.
+    """
+    src = getattr(Config, "VIDEO_SOURCE", None)
+    if src == 0 or src == "0":
+        return Config.PARKING_SLOTS_JSON_WEBCAM
+    return Config.PARKING_SLOTS_JSON
+
+
 @app.post("/update-parking-slots")
 async def update_parking_slots(data: dict):
     """
@@ -331,16 +396,21 @@ async def update_parking_slots(data: dict):
     if exit_zone is not None:
         json_data['exit_zone'] = exit_zone
     
-    os.makedirs(os.path.dirname(Config.PARKING_SLOTS_JSON), exist_ok=True)
-    with open(Config.PARKING_SLOTS_JSON, 'w') as f:
+    slots_path = _get_slots_path_for_current_source()
+    os.makedirs(os.path.dirname(slots_path), exist_ok=True)
+    with open(slots_path, 'w') as f:
         json.dump(json_data, f)
     
-    # Trigger reload
-    reload_path = Config.PARKING_SLOTS_JSON.replace('parking_slots.json', 'reload.txt')
-    with open(reload_path, 'w') as f:
-        f.write('1')
-    
     return {"message": "Parking slots updated successfully. Changes applied directly."}
+
+
+@app.post("/parking/slots")
+async def save_slots(data: dict):
+    """
+    Alias endpoint for saving parking slots configuration.
+    Frontend Slot Editor can POST here.
+    """
+    return await update_parking_slots(data)
 
 @app.get("/parking/status")
 def get_parking_status(db: Session = Depends(get_db)):
@@ -355,7 +425,8 @@ def get_parking_status(db: Session = Depends(get_db)):
 def get_parking_slots():
     """Get the current parking slot polygons and optional entry/exit zones."""
     try:
-        with open(Config.PARKING_SLOTS_JSON, 'r') as f:
+        slots_path = _get_slots_path_for_current_source()
+        with open(slots_path, 'r') as f:
             data = json.load(f)
         return {
             "polygons": data.get("parking_areas", []),
@@ -511,6 +582,20 @@ def get_occupancy_history(limit: int = 100, db: Session = Depends(get_db)):
     history = db.query(OccupancyHistory).order_by(OccupancyHistory.timestamp.desc()).limit(limit).all()
     result = [{"time": h.timestamp.isoformat(), "occupancy": h.occupancy_rate} for h in history]
     return {"data": result[::-1]}
+
+
+@app.get("/parking/occupancy-history")
+async def get_parking_occupancy_history(limit: int = 120, db: Session = Depends(get_db)):
+    """
+    Occupancy history for dashboard charting (roughly last 1 hour at 30s cadence).
+    """
+    history = (
+        db.query(OccupancyHistory)
+        .order_by(OccupancyHistory.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"data": [{"time": h.timestamp.isoformat(), "occupancy": h.occupancy_rate} for h in history][::-1]}
 
 
 @app.get("/analytics/heatmap")
