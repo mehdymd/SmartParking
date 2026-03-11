@@ -1,6 +1,5 @@
-<<<<<<< HEAD
-uplo
-=======
+
+
 # Smart Parking Management System
 
 A comprehensive Smart Parking Management System using AI-powered computer vision for real-time vehicle detection and parking space monitoring. Features a modern React dashboard with analytics, revenue tracking, live video feeds, and annotated output processing.
@@ -205,4 +204,4 @@ This is a complete implementation. For modifications:
 1. Backend changes in `backend/` directory
 2. Frontend changes in `frontend/src/`
 3. Update dependencies in respective requirement files
->>>>>>> 13331c98469b9c041b577cab09d19e0423222777
+
