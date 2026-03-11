@@ -1,5 +1,5 @@
 
-=======
+
 # Smart Parking Management System
 
 A comprehensive Smart Parking Management System using AI-powered computer vision for real-time vehicle detection and parking space monitoring. Features a modern React dashboard with analytics, revenue tracking, live video feeds, and annotated output processing.
