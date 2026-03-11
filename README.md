@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-uplo
+
 =======
 # Smart Parking Management System
 
@@ -205,4 +204,4 @@ This is a complete implementation. For modifications:
 1. Backend changes in `backend/` directory
 2. Frontend changes in `frontend/src/`
 3. Update dependencies in respective requirement files
->>>>>>> 13331c98469b9c041b577cab09d19e0423222777
+
