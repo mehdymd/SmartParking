@@ -5,6 +5,7 @@ const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
   const [manualOverride, setManualOverride] = useState(false);
   const [reportDropdown, setReportDropdown] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [hasUploaded, setHasUploaded] = useState(false);
   const fileInputRef = useRef(null);
 
   const toggleCamera = async () => {
@@ -13,14 +14,15 @@ const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
 
     try {
       if (next) {
-        // Inform backend to use default webcam (index 0) as video source
-        await fetch('http://localhost:8000/parking/set-source', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ source: 0 })
+        // Start camera
+        await fetch('http://localhost:8000/parking/start-camera', {
+          method: 'POST'
         });
       } else {
-        // Camera off: don't force-clear backend source (upload may be active)
+        // Stop camera
+        await fetch('http://localhost:8000/parking/stop-camera', {
+          method: 'POST'
+        });
       }
     } catch (e) {
       console.error('Error syncing camera source with backend', e);
@@ -116,7 +118,20 @@ const Controls = ({ onUpload, cameraOn, setCameraOn, hasUploaded }) => {
         <button
           className="btn btn-blue"
           disabled={!hasUploaded}
-          onClick={() => setCameraOn(false)}
+          onClick={async () => {
+            try {
+              const response = await fetch('http://localhost:8000/parking/play-uploaded', { method: 'POST' });
+              if (response.ok) {
+                setCameraOn(false);
+                alert('Playing uploaded video');
+              } else {
+                alert('No uploaded video found');
+              }
+            } catch (error) {
+              console.error('Error playing uploaded video:', error);
+              alert('Failed to play uploaded video');
+            }
+          }}
           style={{ width: '100%', opacity: hasUploaded ? 1 : 0.5, cursor: hasUploaded ? 'pointer' : 'not-allowed' }}
         >
           Play Uploaded Video

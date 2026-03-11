@@ -64,7 +64,7 @@ async def upload_feed(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.jpg', '.png')):
         raise HTTPException(status_code=400, detail="Invalid file type. Only video and image files are allowed.")
     
-    temp_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
+    temp_path = "uploaded_video.mp4"
     try:
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -83,6 +83,22 @@ async def play_uploaded():
         return {"message": "Playing uploaded video"}
     else:
         return {"error": "No uploaded video found"}
+
+@app.post("/parking/start-camera")
+async def start_camera():
+    import cv2
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        cap.release()
+        raise HTTPException(status_code=500, detail="Camera not available")
+    cap.release()
+    Config.VIDEO_SOURCE = 0
+    return {"message": "Camera started"}
+
+@app.post("/parking/stop-camera")
+async def stop_camera():
+    Config.VIDEO_SOURCE = None
+    return {"message": "Camera stopped"}
 
 @app.get("/parking/video-feed")
 async def video_feed():

@@ -190,10 +190,10 @@ async def process_video():
             annotated_url = None
         
         # Initialize ParkingManagement (currently used for drawing/solutions features)
-        parkingmanager = solutions.ParkingManagement(
-            model=Config.YOLO_MODEL_PATH,
-            json_file=Config.PARKING_SLOTS_JSON
-        )
+        # parkingmanager = solutions.ParkingManagement(
+        #     model=Config.YOLO_MODEL_PATH,
+        #     json_file=Config.PARKING_SLOTS_JSON
+        # )
         
         frame_count = 0
         while True:
