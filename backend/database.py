@@ -3,7 +3,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from datetime import datetime
 import json
 import os
-from config import Config
+from backend.config import Config
 
 class Base(DeclarativeBase):
     pass

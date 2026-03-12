@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
-from database import (
+from backend.database import (
     get_db,
     get_all_slots,
     ParkingHistory,
@@ -14,8 +14,8 @@ from database import (
     ParkingSession,
     update_slot_status,
 )
-from parking_logic import get_parking_statistics
-from config import Config
+from backend.parking_logic import get_parking_statistics
+from backend.config import Config
 from datetime import datetime, timedelta
 import json
 import os
@@ -29,17 +29,22 @@ import numpy as np
 import cv2
 import sys
 sys.path.append('../ultralytics_lib')
-from ultralytics.models.yolo import YOLO
-from heatmap import get_heatmap
+# NOTE: YOLO model is loaded once in backend/main.py lifespan.
+from backend.heatmap import get_heatmap
 
-# Load settings
-with open('settings.json') as f:
-    settings = json.load(f)
+# Load settings (always relative to backend directory)
+_BACKEND_DIR = os.path.dirname(__file__)
+_SETTINGS_PATH = os.path.join(_BACKEND_DIR, "settings.json")
+try:
+    with open(_SETTINGS_PATH, "r") as f:
+        settings = json.load(f)
+except Exception:
+    settings = {}
 
 VIDEO_DIR = "videos"
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
-yolo_model = None  # YOLO()
+yolo_model = None  # legacy; prefer app.state.model
 
 app = FastAPI(title="Smart Parking Management System")
 
@@ -142,8 +147,15 @@ async def parking_snapshot():
     Capture a single frame from the current video source and return it as a JPEG image.
     This is used by the slot editor to ensure polygons align with the active feed.
     """
-    if not Config.VIDEO_SOURCE:
+    # Webcam source is 0, which is falsy; treat only None/"" as inactive.
+    if Config.VIDEO_SOURCE is None or Config.VIDEO_SOURCE == "":
         raise HTTPException(status_code=404, detail="No active video source")
+
+    # Prefer using the latest raw frame from the background pipeline to avoid
+    # camera contention (opening a second VideoCapture often fails on webcam).
+    raw_bytes = getattr(app.state, "latest_raw_jpeg", None)
+    if raw_bytes:
+        return Response(content=raw_bytes, media_type="image/jpeg")
 
     cap = cv2.VideoCapture(Config.VIDEO_SOURCE)
     if not cap.isOpened():
@@ -351,7 +363,21 @@ async def detect_frame(request: DetectRequest):
     """Detect vehicles in a base64 encoded image and return image with bounding boxes."""
     image_data = base64.b64decode(request.image)
     image = Image.open(io.BytesIO(image_data)).convert("RGB")
-    detections = yolo_model.predict(np.array(image))
+    model = getattr(app.state, "model", None)
+    if model is None:
+        raise HTTPException(status_code=500, detail="YOLO model is not loaded")
+
+    results = model(np.array(image), conf=0.3, verbose=False)
+    detections = []
+    if results and len(results) > 0:
+        for box in results[0].boxes:
+            try:
+                if int(box.cls[0]) not in [2, 5, 7]:
+                    continue
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+                detections.append({"bbox": [x1, y1, x2, y2], "class": int(box.cls[0])})
+            except Exception:
+                continue
     
     # Draw bounding boxes
     img_array = np.array(image)
@@ -359,7 +385,7 @@ async def detect_frame(request: DetectRequest):
         bbox = det['bbox']
         x1, y1, x2, y2 = map(int, bbox)
         cv2.rectangle(img_array, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(img_array, det['class'], (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.putText(img_array, str(det.get('class', 'car')), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     
     _, encoded_img = cv2.imencode('.jpg', cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR))
     img_base64 = base64.b64encode(encoded_img.tobytes()).decode('utf-8')
@@ -426,6 +452,8 @@ def get_parking_slots():
     """Get the current parking slot polygons and optional entry/exit zones."""
     try:
         slots_path = _get_slots_path_for_current_source()
+        if not os.path.exists(slots_path):
+            return {"polygons": [], "entry_zone": None, "exit_zone": None}
         with open(slots_path, 'r') as f:
             data = json.load(f)
         return {

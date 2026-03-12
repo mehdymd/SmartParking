@@ -9,8 +9,8 @@ import json
 import numpy as np
 from datetime import datetime
 from ultralytics import solutions
-from api import app as api_app
-from database import (
+from backend.api import app as api_app
+from backend.database import (
     create_tables,
     initialize_slots,
     SessionLocal,
@@ -19,8 +19,8 @@ from database import (
     ParkingSession,
     OccupancyHistory,
 )
-from config import Config
-from parking_logic import get_parking_statistics, determine_occupancy_by_centroid
+from backend.config import Config
+from backend.parking_logic import get_parking_statistics
 
 status = {}  # slot_id -> 'occupied' | 'available'
 reload_flag = False
@@ -107,11 +107,24 @@ def assign_tracks(detection_centroids, now_ts, max_dist=60.0):
 # Share latest processed frame with API for live feed
 api_app.state.latest_jpeg = None
 api_app.state.latest_jpeg_ts = 0.0
+api_app.state.latest_raw_jpeg = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     create_tables()
+
+    # Ensure slots files exist (prevents noisy FileNotFoundError spam)
+    try:
+        os.makedirs(Config.SLOTS_DIR, exist_ok=True)
+        if not os.path.exists(Config.PARKING_SLOTS_JSON):
+            with open(Config.PARKING_SLOTS_JSON, "w") as f:
+                json.dump({"parking_areas": []}, f)
+        if not os.path.exists(Config.PARKING_SLOTS_JSON_WEBCAM):
+            with open(Config.PARKING_SLOTS_JSON_WEBCAM, "w") as f:
+                json.dump({"parking_areas": []}, f)
+    except Exception as e:
+        print(f"Error ensuring slots files: {e}")
     db = SessionLocal()
     try:
         # Clear all existing slots to start with no data
@@ -122,6 +135,14 @@ async def lifespan(app: FastAPI):
         print(f"Error clearing slots: {e}")
     finally:
         db.close()
+
+    # Load YOLO model ONCE at startup (shared via app.state)
+    try:
+        from ultralytics import YOLO
+        app.state.model = YOLO("yolov8n.pt")
+    except Exception as e:
+        print(f"Error loading YOLO model: {e}")
+        app.state.model = None
     
     # Start background video processing task
     video_task = asyncio.create_task(process_video())
@@ -198,15 +219,10 @@ async def process_video():
     api_app.state.camera_last_read_ok = False
     api_app.state.camera_source = None
 
-    # Load YOLO once (was previously loaded per-frame which is extremely slow).
-    from ultralytics import YOLO
-    try:
-        model = YOLO(Config.YOLO_MODEL_PATH)
-    except Exception as e:
-        print(f"Error: failed to load YOLO model at {Config.YOLO_MODEL_PATH}: {e}")
-        model = None
-    # COCO vehicle classes: car=2, motorcycle=3, bus=5, truck=7
-    vehicle_classes = [2, 3, 5, 7]
+    # Use startup-loaded YOLO model.
+    model = getattr(app.state, "model", None)
+    # COCO vehicle classes requested: car=2, bus=5, truck=7
+    vehicle_classes = [2, 5, 7]
 
     def _slots_path_for_source(source):
         if source == 0 or source == "0":
@@ -231,6 +247,16 @@ async def process_video():
             if slots_cache["path"] != path:
                 slots_cache["mtime"] = None
                 slots_cache["path"] = path
+            if not os.path.exists(path):
+                # Missing file is valid (no slots defined yet).
+                slots_cache["mtime"] = None
+                slots_cache["raw"] = {}
+                slots_cache["parking_areas"] = []
+                slots_cache["entry_zone"] = None
+                slots_cache["exit_zone"] = None
+                slots_cache["frame_width"] = None
+                slots_cache["frame_height"] = None
+                return
             mtime = os.path.getmtime(path)
             if slots_cache["mtime"] == mtime:
                 return
@@ -244,7 +270,7 @@ async def process_video():
             slots_cache["frame_width"] = raw.get("frame_width")
             slots_cache["frame_height"] = raw.get("frame_height")
         except Exception as e:
-            # Keep previous cache; just log.
+            # Keep previous cache; log once per change at most.
             print(f"Error loading parking slots: {e}")
 
     def _scale_points(points, scale_x: float, scale_y: float):
@@ -377,8 +403,6 @@ async def process_video():
         scaled_exit = None
         last_slots_mtime_built = None
         last_infer_ts = 0.0
-        # Simple debouncing to reduce flicker while still updating quickly.
-        slot_streaks = {}  # slot_id -> {"state": str, "streak": int}
 
         while True:
             # Check if source changed
@@ -450,34 +474,33 @@ async def process_video():
             except Exception:
                 pass
 
-            # YOLO inference every N frames, but annotate/yield every frame.
-            # Adaptive inference:
-            # - When any slot is occupied, infer much more frequently so "exit" updates quickly.
-            # - Always force at least one inference per second (prevents stuck states).
+            # Run inference every frame for correctness (no carry-over states).
             now_ts = datetime.utcnow().timestamp()
-            any_occupied = any(v == "occupied" for v in (last_occupancy or {}).values())
-            effective_skip = 1 if any_occupied else max(1, int(Config.FRAME_SKIP))
-            run_infer = (frame_count % effective_skip == 0) or ((now_ts - last_infer_ts) >= 1.0)
+            run_infer = True
             detections = last_detections
             det_centroids = []
             if run_infer and model is not None:
                 try:
                     last_infer_ts = now_ts
-                    results = model.predict(
-                        frame,
-                        conf=Config.CONF,
-                        iou=Config.IOU,
-                        device=Config.DEVICE,
-                        classes=vehicle_classes,
+                    # YOLO expects RGB for best results
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    results = model(
+                        frame_rgb,
+                        conf=0.3,
                         verbose=False,
                     )
                     detections = []
                     det_centroids = []
-                    for result in results or []:
-                        for box in getattr(result, "boxes", []) or []:
-                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                            detections.append({"bbox": [float(x1), float(y1), float(x2), float(y2)]})
-                            det_centroids.append((float((x1 + x2) / 2.0), float((y1 + y2) / 2.0)))
+                    if results and len(results) > 0:
+                        for box in results[0].boxes:
+                            try:
+                                if int(box.cls[0]) not in vehicle_classes:
+                                    continue
+                                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+                                detections.append({"bbox": [float(x1), float(y1), float(x2), float(y2)]})
+                                det_centroids.append((float((x1 + x2) / 2.0), float((y1 + y2) / 2.0)))
+                            except Exception:
+                                continue
                     last_detections = detections
                 except Exception as e:
                     print(f"YOLO inference error: {e}")
@@ -541,26 +564,20 @@ async def process_video():
                     except Exception:
                         pass
             
-            # Update occupancy + persist only on inference frames (cached results used for visuals between).
-            if run_infer and slot_polygons:
+            # Update occupancy each frame (reset to available, then mark occupied by centroid-in-slot-bbox).
+            if run_infer and slot_bboxes:
                 try:
-                    raw_occupancy = determine_occupancy_by_centroid(detections, slot_polygons)
+                    # 1) Reset all slots to available at the start of every frame.
+                    occupancy = {slot_id: "available" for slot_id in slot_bboxes.keys()}
 
-                    # Debounce per-slot changes (2 consecutive inference updates required).
-                    occupancy = {}
-                    for slot_id, next_state in (raw_occupancy or {}).items():
-                        prev_info = slot_streaks.get(slot_id, {"state": next_state, "streak": 0})
-                        if prev_info["state"] == next_state:
-                            prev_info["streak"] = min(int(prev_info.get("streak", 0)) + 1, 10)
-                        else:
-                            prev_info = {"state": next_state, "streak": 1}
-                        slot_streaks[slot_id] = prev_info
-
-                        # Require 2 consistent updates before flipping.
-                        if prev_info["streak"] >= 2:
-                            occupancy[slot_id] = next_state
-                        else:
-                            occupancy[slot_id] = (last_occupancy or {}).get(slot_id, next_state)
+                    # 2) Mark occupied if a vehicle centroid is inside the slot bbox.
+                    for det in detections:
+                        x1, y1, x2, y2 = det["bbox"]
+                        cx = int((x1 + x2) // 2)
+                        cy = int((y1 + y2) // 2)
+                        for slot_id, (sx1, sy1, sx2, sy2) in slot_bboxes.items():
+                            if sx1 < cx < sx2 and sy1 < cy < sy2:
+                                occupancy[slot_id] = "occupied"
 
                     last_occupancy = occupancy
 
@@ -624,6 +641,14 @@ async def process_video():
                     db.close()
                 except Exception as e:
                     print(f"Error updating occupancy/billing/sessions: {e}")
+
+            # Publish latest raw frame for snapshot (slot editor)
+            try:
+                ok_raw, buf_raw = cv2.imencode(".jpg", frame)
+                if ok_raw:
+                    api_app.state.latest_raw_jpeg = buf_raw.tobytes()
+            except Exception:
+                pass
 
             annotated = _annotate_frame(frame, slot_bboxes, last_occupancy, last_detections)
             if out:

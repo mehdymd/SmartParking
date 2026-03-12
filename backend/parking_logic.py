@@ -1,5 +1,5 @@
 import json
-from database import load_parking_slots_from_json
+from backend.database import load_parking_slots_from_json
 
 VEHICLE_CLASS_MAP = {
     'car':        {'type': 'standard', 'size': 1},
