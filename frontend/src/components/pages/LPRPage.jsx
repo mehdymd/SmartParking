@@ -1,21 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { apiUrl } from '../../lib/api';
 
 const LPRPage = () => {
   const [logs, setLogs] = useState([]);
   const [search, setSearch] = useState('');
   const [selectedLog, setSelectedLog] = useState(null);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchLogs();
-  }, [search]);
-
-  const fetchLogs = async () => {
-    const url = search ? `http://localhost:8000/lpr/history?plate=${search}` : 'http://localhost:8000/lpr/history';
+  const fetchLogs = useCallback(async () => {
+    const url = search ? apiUrl(`/lpr/history?plate=${search}`) : apiUrl('/lpr/history');
     const response = await fetch(url);
     const data = await response.json();
     setLogs(data.logs || []);
-  };
+  }, [search]);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
 
   const computeStats = () => {
     const today = new Date().toISOString().split('T')[0];

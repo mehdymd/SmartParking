@@ -11,7 +11,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('Dashboard');
-  const [uploadedSrc, setUploadedSrc] = useState(null);
+  const [feedState, setFeedState] = useState({ mode: 'none', source: null, token: 0 });
   const { status: wsStatus, data: wsData } = useWebSocket();
   const [activeAlert, setActiveAlert] = useState(null);
 
@@ -72,8 +72,8 @@ function App() {
       <div style={{ marginTop: '80px' }}>
         {currentPage === 'Dashboard' && (
           <Dashboard
-            uploadedSrc={uploadedSrc}
-            onUpload={setUploadedSrc}
+            feedState={feedState}
+            setFeedState={setFeedState}
             wsStatus={wsStatus}
             wsData={wsData}
           />

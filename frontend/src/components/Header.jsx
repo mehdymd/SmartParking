@@ -1,14 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { Bell } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
 const Header = ({ currentPage, setCurrentPage, wsConnected = true }) => {
   const [sessionTime, setSessionTime] = useState(0);
+  const [alertCount, setAlertCount] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setSessionTime(prev => prev + 1);
     }, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const res = await fetch(apiUrl('/alerts?resolved=false'));
+        if (!res.ok) return;
+        const data = await res.json();
+        setAlertCount((data.alerts || []).length);
+      } catch {}
+    };
+    fetchAlerts();
+    const id = setInterval(fetchAlerts, 5000);
+    return () => clearInterval(id);
   }, []);
 
   const formatTime = (seconds) => {
@@ -82,37 +98,27 @@ const Header = ({ currentPage, setCurrentPage, wsConnected = true }) => {
         </span>
         <button style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative' }} onClick={() => setCurrentPage('Alerts')}>
           <Bell size={16} color="var(--text-primary)" />
-          <div style={{
-            position: 'absolute',
-            top: '-4px',
-            right: '-4px',
-            width: '12px',
-            height: '12px',
-            borderRadius: '50%',
-            backgroundColor: 'var(--red)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '8px',
-            color: 'white'
-          }}>
-            3
-          </div>
+          {alertCount > 0 && (
+            <div style={{
+              position: 'absolute',
+              top: '-4px',
+              right: '-4px',
+              minWidth: '14px',
+              height: '14px',
+              borderRadius: '7px',
+              backgroundColor: 'var(--red)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '9px',
+              fontWeight: 700,
+              color: 'white',
+              padding: '0 3px'
+            }}>
+              {alertCount > 99 ? '99+' : alertCount}
+            </div>
+          )}
         </button>
-        <div style={{
-          width: '32px',
-          height: '32px',
-          borderRadius: '50%',
-          backgroundColor: 'var(--blue)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'white',
-          fontSize: '14px',
-          fontWeight: 'bold'
-        }}>
-          SP
-        </div>
       </div>
 
       <style>

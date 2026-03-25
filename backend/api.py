@@ -3,25 +3,11 @@ from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
-from backend.database import (
-    get_db,
-    get_all_slots,
-    ParkingHistory,
-    PlateLog,
-    Transaction,
-    ExportHistory,
-    OccupancyHistory,
-    ParkingSession,
-    update_slot_status,
-)
-from backend.parking_logic import get_parking_statistics
-from backend.config import Config
 from datetime import datetime, timedelta
 import json
 import os
 import shutil
 import uuid
-import tempfile
 import base64
 import io
 from PIL import Image
@@ -29,8 +15,40 @@ import numpy as np
 import cv2
 import sys
 sys.path.append('../ultralytics_lib')
-# NOTE: YOLO model is loaded once in backend/main.py lifespan.
-from backend.heatmap import get_heatmap
+
+try:
+    from .database import (
+        get_db,
+        get_all_slots,
+        ParkingHistory,
+        PlateLog,
+        Transaction,
+        ExportHistory,
+        OccupancyHistory,
+        ParkingSession,
+        Alert,
+        update_slot_status,
+    )
+    from .parking_logic import get_parking_statistics
+    from .config import Config
+    from .heatmap import get_heatmap
+except ImportError:
+    from database import (
+        get_db,
+        get_all_slots,
+        ParkingHistory,
+        PlateLog,
+        Transaction,
+        ExportHistory,
+        OccupancyHistory,
+        ParkingSession,
+        Alert,
+        update_slot_status,
+    )
+    from parking_logic import get_parking_statistics
+    from config import Config
+    # NOTE: YOLO model is loaded once in backend/main.py lifespan.
+    from heatmap import get_heatmap
 
 # Load settings (always relative to backend directory)
 _BACKEND_DIR = os.path.dirname(__file__)
@@ -41,7 +59,7 @@ try:
 except Exception:
     settings = {}
 
-VIDEO_DIR = "videos"
+VIDEO_DIR = os.path.abspath(os.path.join(_BACKEND_DIR, "..", "videos"))
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
 yolo_model = None  # legacy; prefer app.state.model
@@ -56,6 +74,69 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _is_image_file(path_or_name: str) -> bool:
+    return str(path_or_name).lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))
+
+
+def _is_video_file(path_or_name: str) -> bool:
+    return str(path_or_name).lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))
+
+
+def _source_mode(source):
+    if source is None or source == "":
+        return "none"
+    if source == 0 or source == "0":
+        return "camera"
+    return "upload"
+
+
+def _validate_source_file(path: str):
+    if _is_image_file(path):
+        image = cv2.imread(path)
+        return image is not None
+
+    cap = cv2.VideoCapture(path)
+    try:
+        if not cap.isOpened():
+            return False
+        ok, _ = cap.read()
+        return bool(ok)
+    finally:
+        cap.release()
+
+
+def _format_duration_minutes(duration_mins, entry_time=None, exit_time=None):
+    if duration_mins is None and entry_time is not None:
+        end_time = exit_time or datetime.utcnow()
+        try:
+            duration_mins = max(0, int((end_time - entry_time).total_seconds() / 60))
+        except Exception:
+            duration_mins = None
+
+    if duration_mins is None:
+        return None
+
+    total_minutes = max(0, int(duration_mins))
+    hours, mins = divmod(total_minutes, 60)
+    if hours and mins:
+        return f"{hours}h {mins}m"
+    if hours:
+        return f"{hours}h"
+    return f"{mins}m"
+
+
+def _derive_duration_minutes(duration_mins, entry_time=None, exit_time=None):
+    if duration_mins is not None:
+        return max(0, int(duration_mins))
+    if entry_time is None:
+        return None
+    try:
+        end_time = exit_time or datetime.utcnow()
+        return max(0, int((end_time - entry_time).total_seconds() / 60))
+    except Exception:
+        return None
 
 @app.post("/upload-video")
 async def upload_video(file: UploadFile = File(...)):
@@ -81,20 +162,41 @@ async def upload_feed(file: UploadFile = File(...)):
     
     try:
         ext = os.path.splitext(file.filename)[1].lower() or ".mp4"
-        fd, temp_path = tempfile.mkstemp(prefix="uploaded_", suffix=ext)
-        os.close(fd)
-        with open(temp_path, "wb") as buffer:
+        upload_path = os.path.join(VIDEO_DIR, f"uploaded_feed_{uuid.uuid4().hex}{ext}")
+        with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
+        if not _validate_source_file(upload_path):
+            try:
+                os.unlink(upload_path)
+            except FileNotFoundError:
+                pass
+            raise HTTPException(status_code=400, detail="Uploaded file could not be opened as a feed")
+
+        previous_upload = getattr(app.state, "uploaded_feed_path", None)
+        if previous_upload and previous_upload != upload_path and os.path.exists(previous_upload):
+            try:
+                os.unlink(previous_upload)
+            except OSError:
+                pass
+
+        app.state.uploaded_feed_path = upload_path
         # Point processing pipeline to this uploaded file (hot-swap, no restart).
-        Config.VIDEO_SOURCE = temp_path
-        return {"message": "Feed uploaded and source updated", "source": temp_path}
+        Config.VIDEO_SOURCE = upload_path
+        return {
+            "message": "Feed uploaded and source updated",
+            "source": upload_path,
+            "mode": "upload",
+            "filename": os.path.basename(upload_path),
+        }
     except Exception as e:
         try:
-            if "temp_path" in locals() and temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+            if "upload_path" in locals() and upload_path and os.path.exists(upload_path):
+                os.unlink(upload_path)
         except Exception:
             pass
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/parking/play-uploaded")
@@ -138,11 +240,11 @@ def generate_latest_frames():
         if frame_bytes:
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        time.sleep(0.05)
+        time.sleep(0.001)
 
 
 @app.get("/parking/snapshot")
-async def parking_snapshot():
+async def parking_snapshot(annotated: bool = False):
     """
     Capture a single frame from the current video source and return it as a JPEG image.
     This is used by the slot editor to ensure polygons align with the active feed.
@@ -150,6 +252,12 @@ async def parking_snapshot():
     # Webcam source is 0, which is falsy; treat only None/"" as inactive.
     if Config.VIDEO_SOURCE is None or Config.VIDEO_SOURCE == "":
         raise HTTPException(status_code=404, detail="No active video source")
+
+    # Optionally return the latest annotated frame for dashboard pause/review mode.
+    if annotated:
+        annotated_bytes = getattr(app.state, "latest_jpeg", None)
+        if annotated_bytes:
+            return Response(content=annotated_bytes, media_type="image/jpeg")
 
     # Prefer using the latest raw frame from the background pipeline to avoid
     # camera contention (opening a second VideoCapture often fails on webcam).
@@ -177,7 +285,30 @@ def generate_frames():
     """Generator function to yield video frames as JPEG images."""
     import time
 
-    if not Config.VIDEO_SOURCE:
+    def scale_points(points, scale_x: float, scale_y: float):
+        scaled = []
+        for p in points or []:
+            if isinstance(p, dict):
+                x, y = p.get("x", 0), p.get("y", 0)
+            else:
+                x, y = p[0], p[1]
+            scaled.append((int(x * scale_x), int(y * scale_y)))
+        return scaled
+
+    def draw_flow_zone(image, points, color, label):
+        if not points or len(points) < 2:
+            return
+        pts = np.array(points, np.int32)
+        cv2.polylines(image, [pts], isClosed=True, color=color, thickness=2)
+        if len(points) >= 3:
+            overlay = image.copy()
+            cv2.fillPoly(overlay, [pts], color)
+            cv2.addWeighted(overlay, 0.12, image, 0.88, 0, image)
+        label_x = int(points[0][0])
+        label_y = max(18, int(points[0][1]) - 10)
+        cv2.putText(image, label, (label_x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
+    if Config.VIDEO_SOURCE is None or Config.VIDEO_SOURCE == "":
         # Return placeholder frame continuously
         while True:
             frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -211,9 +342,13 @@ def generate_frames():
         slots_path = _get_slots_path_for_current_source()
         with open(slots_path, 'r') as f:
             slots_data = json.load(f)
-        parking_areas = slots_data.get('parking_areas', [])
+        raw_areas = slots_data.get('parking_areas', [])
+        raw_entry_zone = slots_data.get('entry_zone')
+        raw_exit_zone = slots_data.get('exit_zone')
     except Exception:
-        parking_areas = []
+        raw_areas = []
+        raw_entry_zone = None
+        raw_exit_zone = None
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1
@@ -227,9 +362,16 @@ def generate_frames():
     else:
         scale_x = scale_y = 1.0
 
-    for area in parking_areas:
+    for area in raw_areas:
+        # Support both new {points, zone} and legacy flat array formats
+        if isinstance(area, dict) and 'points' in area:
+            raw_points = area['points']
+            zone = area.get('zone', 'A')
+        else:
+            raw_points = area
+            zone = 'A'
         points = []
-        for p in area:
+        for p in raw_points:
             # Support both dict {"x","y"} and [x, y] formats
             if isinstance(p, dict):
                 x, y = p.get('x', 0), p.get('y', 0)
@@ -237,7 +379,10 @@ def generate_frames():
                 x, y = p[0], p[1]
             points.append((int(x * scale_x), int(y * scale_y)))
         if len(points) >= 2:
-            parking_polygons.append(np.array(points, np.int32))
+            parking_polygons.append({"points": np.array(points, np.int32), "zone": zone})
+
+    entry_zone_points = scale_points(raw_entry_zone, scale_x, scale_y) if raw_entry_zone else None
+    exit_zone_points = scale_points(raw_exit_zone, scale_x, scale_y) if raw_exit_zone else None
 
     try:
         while True:
@@ -247,9 +392,20 @@ def generate_frames():
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 continue
 
-            # Draw parking slot polygons
-            for poly in parking_polygons:
-                cv2.polylines(frame, [poly], isClosed=True, color=(0, 255, 0), thickness=2)
+            # Draw parking slot polygons with zone colors
+            zone_colors = {
+                "A": (0, 165, 255),   # Amber/Gold (BGR)
+                "B": (219, 152, 52),  # Blue (BGR)
+                "C": (182, 89, 155),  # Purple (BGR)
+            }
+            for slot in parking_polygons:
+                poly = slot["points"]
+                zone = slot["zone"]
+                color = zone_colors.get(zone, (0, 255, 0))
+                cv2.polylines(frame, [poly], isClosed=True, color=color, thickness=2)
+
+            draw_flow_zone(frame, entry_zone_points, (16, 185, 129), "ENTRY")
+            draw_flow_zone(frame, exit_zone_points, (94, 63, 244), "EXIT")
 
             ret, buffer = cv2.imencode('.jpg', frame)
             if not ret:
@@ -281,50 +437,63 @@ def parking_override(data: dict, db: Session = Depends(get_db)):
 async def camera_status():
     """Check if the current video source is active and reading frames."""
     try:
+        source = getattr(Config, "VIDEO_SOURCE", None)
         # Prefer background pipeline state (true "currently open and reading frames").
         if hasattr(app.state, "camera_open"):
+            source = getattr(app.state, "camera_source", source)
             return {
                 "active": bool(getattr(app.state, "camera_open", False) and getattr(app.state, "camera_last_read_ok", False)),
                 "open": bool(getattr(app.state, "camera_open", False)),
-                "source": getattr(app.state, "camera_source", None),
+                "source": source,
+                "mode": _source_mode(source),
             }
 
+        if source is None or source == "":
+            return {"active": False, "open": False, "source": None, "mode": "none"}
+
         # Fallback: best-effort probe.
-        cap = cv2.VideoCapture(Config.VIDEO_SOURCE)
+        cap = cv2.VideoCapture(source)
         is_open = cap.isOpened()
         ok = False
         if is_open:
             ok, _ = cap.read()
         cap.release()
-        return {"active": bool(is_open and ok), "open": bool(is_open), "source": Config.VIDEO_SOURCE}
+        return {"active": bool(is_open and ok), "open": bool(is_open), "source": source, "mode": _source_mode(source)}
     except Exception as e:
         print(f"Camera status error: {e}")
-        return {"active": False, "open": False, "source": getattr(Config, "VIDEO_SOURCE", None)}
+        source = getattr(Config, "VIDEO_SOURCE", None)
+        return {"active": False, "open": False, "source": source, "mode": _source_mode(source)}
 
 @app.post("/parking/set-source")
 async def set_source(data: dict):
     """Set the video source at runtime (e.g., to webcam or file path)."""
     source = data.get('source')
-    if source is None:
-      Config.VIDEO_SOURCE = None
-      return {"message": "Source cleared"}
+    if source is None or source == "":
+        Config.VIDEO_SOURCE = None
+        return {"message": "Source cleared", "mode": "none", "source": None}
 
     # Normalize webcam source
     if source == "0":
         source = 0
 
     try:
-        cap = cv2.VideoCapture(source)
-        valid = cap.isOpened()
-        cap.release()
-        if valid:
-            Config.VIDEO_SOURCE = source
-            return {"message": "Source updated successfully"}
+        if source == 0:
+            cap = cv2.VideoCapture(source)
+            valid = cap.isOpened()
+            cap.release()
         else:
-            return {"error": "Source is invalid or not accessible"}
+            valid = isinstance(source, str) and os.path.exists(source) and _validate_source_file(source)
+
+        if not valid:
+            raise HTTPException(status_code=400, detail="Source is invalid or not accessible")
+
+        Config.VIDEO_SOURCE = source
+        return {"message": "Source updated successfully", "mode": _source_mode(source), "source": source}
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         print(f"Set source error: {e}")
-        return {"error": "Source validation failed"}
+        raise HTTPException(status_code=500, detail="Source validation failed")
 
 
 @app.get("/parking/sessions")
@@ -343,8 +512,8 @@ async def get_sessions(limit: int = 50, db: Session = Depends(get_db)):
             "sessions": [
                 {
                     "slot_id": s.slot_id,
-                    "entry_time": s.entry_time.isoformat() if s.entry_time else None,
-                    "exit_time": s.exit_time.isoformat() if s.exit_time else None,
+                    "entry_time": (s.entry_time.isoformat() + "Z") if s.entry_time else None,
+                    "exit_time": (s.exit_time.isoformat() + "Z") if s.exit_time else None,
                     "duration_minutes": s.duration_minutes,
                 }
                 for s in sessions
@@ -406,12 +575,25 @@ def _get_slots_path_for_current_source():
 async def update_parking_slots(data: dict):
     """
     Update the parking slots configuration.
+    Accepts both new format (list of {points, zone}) and legacy format (list of points).
     """
     parking_slots = data.get('parking_slots', [])
     entry_zone = data.get('entry_zone')
     exit_zone = data.get('exit_zone')
 
-    json_data = {"parking_areas": parking_slots}
+    # Normalize: convert to new format {points: [...], zone: "A"}
+    normalized_slots = []
+    for slot in parking_slots:
+        if isinstance(slot, dict) and 'points' in slot:
+            normalized_slots.append({
+                "points": slot["points"],
+                "zone": slot.get("zone", "A")
+            })
+        elif isinstance(slot, list):
+            # Legacy flat array format
+            normalized_slots.append({"points": slot, "zone": "A"})
+
+    json_data = {"parking_areas": normalized_slots}
     if 'frame_width' in data:
         json_data['frame_width'] = data['frame_width']
         json_data['frame_height'] = data['frame_height']
@@ -449,29 +631,74 @@ def get_parking_status(db: Session = Depends(get_db)):
 
 @app.get("/parking/slots")
 def get_parking_slots():
-    """Get the current parking slot polygons and optional entry/exit zones."""
+    """Get the current parking slot polygons with zone types and optional entry/exit zones."""
     try:
         slots_path = _get_slots_path_for_current_source()
         if not os.path.exists(slots_path):
-            return {"polygons": [], "entry_zone": None, "exit_zone": None}
+            return {"polygons": [], "entry_zone": None, "exit_zone": None, "frame_width": None, "frame_height": None}
         with open(slots_path, 'r') as f:
             data = json.load(f)
+        raw_areas = data.get("parking_areas", [])
+        # Normalize: convert legacy flat arrays to {points, zone} format
+        polygons = []
+        for area in raw_areas:
+            if isinstance(area, dict) and 'points' in area:
+                polygons.append({"points": area["points"], "zone": area.get("zone", "A")})
+            elif isinstance(area, list):
+                polygons.append({"points": area, "zone": "A"})
         return {
-            "polygons": data.get("parking_areas", []),
+            "polygons": polygons,
             "entry_zone": data.get("entry_zone"),
-            "exit_zone": data.get("exit_zone")
+            "exit_zone": data.get("exit_zone"),
+            "frame_width": data.get("frame_width"),
+            "frame_height": data.get("frame_height"),
         }
     except:
-        return {"polygons": []}
+        return {"polygons": [], "entry_zone": None, "exit_zone": None, "frame_width": None, "frame_height": None}
 
 @app.get("/parking/stats")
 def get_parking_stats(db: Session = Depends(get_db)):
     """
     Get parking statistics.
+    Total reflects slots defined in SlotEditor (parking_slots.json).
+    Returns all zeros when camera/video is not active.
     """
+    # Check if camera is active
+    camera_active = bool(getattr(app.state, "camera_open", False) and getattr(app.state, "camera_last_read_ok", False))
+
+    # Get total from saved slots JSON (SlotEditor)
+    total_from_json = 0
+    try:
+        slots_path = _get_slots_path_for_current_source()
+        if os.path.exists(slots_path):
+            with open(slots_path, 'r') as f:
+                data = json.load(f)
+            raw_areas = data.get("parking_areas", [])
+            total_from_json = len(raw_areas)
+    except Exception:
+        pass
+
+    # If camera not active, return zeros
+    if not camera_active:
+        return {
+            "total": 0,
+            "available": 0,
+            "occupied": 0,
+            "occupancy_rate": 0,
+        }
+
+    # Get live occupancy from DB
     slots = get_all_slots(db)
     status = {slot.id: slot.status for slot in slots}
     stats = get_parking_statistics(status)
+
+    # Override total with saved slot count from SlotEditor
+    stats["total"] = total_from_json
+    # Recompute occupancy rate based on correct total
+    occupied = stats.get("occupied", 0)
+    available = max(0, total_from_json - occupied)
+    stats["available"] = available
+    stats["occupancy_rate"] = round((occupied / total_from_json) * 100, 2) if total_from_json > 0 else 0
     return stats
 
 @app.get("/parking/history")
@@ -485,11 +712,14 @@ def get_parking_history(limit: int = 50, db: Session = Depends(get_db)):
         {
             "id": log.id,
             "slot_id": log.slot_id,
-            "entry_time": log.entry_time.isoformat() if log.entry_time else None,
-            "exit_time": log.exit_time.isoformat() if log.exit_time else None,
-            "duration_minutes": log.duration_mins,
+            "timestamp": (log.timestamp.isoformat() + "Z") if log.timestamp else None,
+            "status": log.status,
+            "entry_time": (log.timestamp.isoformat() + "Z") if log.status == "occupied" and log.timestamp else None,
+            "exit_time": (log.timestamp.isoformat() + "Z") if log.status == "available" and log.timestamp else None,
+            "duration_minutes": log.dwell_minutes,
             "vehicle_type": log.vehicle_type,
-            "plate": log.plate
+            "plate": log.plate,
+            "speed_kmh": log.speed_kmh,
         } for log in logs
     ]
     return {"history": result}
@@ -509,7 +739,7 @@ def get_lpr_history(limit: int = 50, plate: str = None, db: Session = Depends(ge
             "plate": log.plate,
             "slot_id": log.slot_id,
             "event_type": log.event_type,
-            "timestamp": log.timestamp.isoformat(),
+            "timestamp": log.timestamp.isoformat() + "Z" if log.timestamp else None,
             "confidence": log.confidence,
             "vehicle_type": log.vehicle_type
         } for log in logs
@@ -547,11 +777,12 @@ def get_revenue_transactions(limit: int = 20, page: int = 1, date: str = None, d
     transactions = query.offset((page - 1) * limit).limit(limit).all()
     result = [
         {
-            "time": t.entry_time.isoformat(),
+            "time": t.entry_time.isoformat() + "Z" if t.entry_time else None,
             "plate": t.plate,
             "slot": t.slot_id,
             "type": t.vehicle_type,
-            "duration": f"{t.duration_mins // 60}h {t.duration_mins % 60}m" if t.duration_mins else "N/A",
+            "duration": _format_duration_minutes(t.duration_mins, t.entry_time, t.exit_time),
+            "duration_minutes": _derive_duration_minutes(t.duration_mins, t.entry_time, t.exit_time),
             "amount": t.amount,
             "status": t.status
         } for t in transactions
@@ -572,7 +803,7 @@ def get_revenue_chart(range: str = "7d", db: Session = Depends(get_db)):
 
 @app.get("/analytics/dwell")
 def get_dwell_summary(db: Session = Depends(get_db)):
-    dwells = db.query(ParkingHistory.dwell_minutes).filter(ParkingHistory.dwell_minutes.isnot(None)).all()
+    dwells = db.query(ParkingSession.duration_minutes).filter(ParkingSession.duration_minutes.isnot(None)).all()
     if not dwells:
         return {"avg_dwell": 0, "median_dwell": 0, "max_dwell": 0, "most_common": 0}
     values = [d[0] for d in dwells]
@@ -592,13 +823,14 @@ def get_dwell_chart(zone: str = None, range: str = "7d", db: Session = Depends(g
     days = 7 if range == "7d" else 30
     start_date = datetime.utcnow() - timedelta(days=days)
     from sqlalchemy import func
+    session_time = func.coalesce(ParkingSession.exit_time, ParkingSession.entry_time)
     query = db.query(
-        func.extract('hour', ParkingHistory.timestamp).label('hour'),
-        func.avg(ParkingHistory.dwell_minutes).label('avg_dwell')
-    ).filter(ParkingHistory.dwell_minutes.isnot(None), ParkingHistory.timestamp >= start_date)
+        func.extract('hour', session_time).label('hour'),
+        func.avg(ParkingSession.duration_minutes).label('avg_dwell')
+    ).filter(ParkingSession.duration_minutes.isnot(None), session_time >= start_date)
     if zone:
-        query = query.filter(ParkingHistory.slot_id.startswith(zone))
-    hourly_avgs = query.group_by(func.extract('hour', ParkingHistory.timestamp)).all()
+        query = query.filter(ParkingSession.slot_id.like(f"{zone}%"))
+    hourly_avgs = query.group_by(func.extract('hour', session_time)).all()
     result = [{"hour": int(h[0]), "avg_dwell": float(h[1])} for h in hourly_avgs]
     return {"data": result}
 
@@ -608,7 +840,7 @@ def get_occupancy_history(limit: int = 100, db: Session = Depends(get_db)):
     Get occupancy history for charting.
     """
     history = db.query(OccupancyHistory).order_by(OccupancyHistory.timestamp.desc()).limit(limit).all()
-    result = [{"time": h.timestamp.isoformat(), "occupancy": h.occupancy_rate} for h in history]
+    result = [{"time": h.timestamp.isoformat() + "Z", "occupancy": h.occupancy_rate} for h in history]
     return {"data": result[::-1]}
 
 
@@ -623,7 +855,7 @@ async def get_parking_occupancy_history(limit: int = 120, db: Session = Depends(
         .limit(limit)
         .all()
     )
-    return {"data": [{"time": h.timestamp.isoformat(), "occupancy": h.occupancy_rate} for h in history][::-1]}
+    return {"data": [{"time": h.timestamp.isoformat() + "Z", "occupancy": h.occupancy_rate} for h in history][::-1]}
 
 
 @app.get("/analytics/heatmap")
@@ -638,9 +870,29 @@ def get_analytics_heatmap(range: str = "30d", db: Session = Depends(get_db)):
 
 @app.post("/export/trigger")
 def trigger_export(db: Session = Depends(get_db)):
-    from scheduler import export_daily_report
-    export_daily_report()
-    return {"message": "Export triggered"}
+    try:
+        from .scheduler import export_daily_report
+    except ImportError:
+        from scheduler import export_daily_report
+    result = export_daily_report()
+    return result
+
+@app.get("/export/download")
+def download_export(db: Session = Depends(get_db)):
+    """Generate and download the current CSV report."""
+    try:
+        from .reporting import build_csv_report, collect_report_data
+    except ImportError:
+        from reporting import build_csv_report, collect_report_data
+
+    report = collect_report_data(db)
+    content = build_csv_report(report)
+    filename = f'report_{report["date_str"]}.csv'
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.get("/export/history")
 def get_export_history(db: Session = Depends(get_db)):
@@ -650,42 +902,98 @@ def get_export_history(db: Session = Depends(get_db)):
             "filename": h.filename,
             "file_size": h.file_size,
             "destination": h.destination,
-            "timestamp": h.timestamp.isoformat()
+            "timestamp": h.timestamp.isoformat() + "Z" if h.timestamp else None
         } for h in history
     ]
     return {"history": result}
 
+
+@app.get("/export/report/pdf")
+def export_report_pdf(db: Session = Depends(get_db)):
+    try:
+        from .reporting import build_pdf_report, collect_report_data
+    except ImportError:
+        from reporting import build_pdf_report, collect_report_data
+
+    data = collect_report_data(db)
+    content = build_pdf_report(data)
+    date_str = data["date_str"]
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=SmartParking_Report_{date_str}.pdf"}
+    )
+
+
+@app.get("/export/report/excel")
+def export_report_excel(db: Session = Depends(get_db)):
+    try:
+        from .reporting import build_excel_report, collect_report_data
+    except ImportError:
+        from reporting import build_excel_report, collect_report_data
+
+    data = collect_report_data(db)
+    content = build_excel_report(data)
+    date_str = data["date_str"]
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=SmartParking_Report_{date_str}.xlsx"}
+    )
+
+
+@app.post("/export/report/email")
+def export_report_email(db: Session = Depends(get_db)):
+    """Generate report and send via email."""
+    try:
+        from .scheduler import export_daily_report
+    except ImportError:
+        from scheduler import export_daily_report
+    result = export_daily_report()
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return {"message": "Report generated and emailed", "filename": result.get("filename", "")}
+
+
+@app.get("/alerts")
+def get_alerts(limit: int = 50, resolved: bool = None, db: Session = Depends(get_db)):
+    """Get alerts, optionally filtered by resolved status."""
+    query = db.query(Alert).order_by(Alert.timestamp.desc())
+    if resolved is not None:
+        query = query.filter(Alert.resolved == resolved)
+    alerts = query.limit(limit).all()
+    return {
+        "alerts": [
+            {
+                "id": a.id,
+                "alert_type": a.alert_type,
+                "slot_id": a.slot_id,
+                "vehicle_id": a.vehicle_id,
+                "detail": a.detail,
+                "resolved": a.resolved,
+                "timestamp": a.timestamp.isoformat() + "Z" if a.timestamp else None,
+            }
+            for a in alerts
+        ]
+    }
+
+@app.post("/alerts/{alert_id}/resolve")
+def resolve_alert(alert_id: int, db: Session = Depends(get_db)):
+    """Mark an alert as resolved."""
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.resolved = True
+    db.commit()
+    return {"message": "Alert resolved"}
+
 @app.get("/settings")
 def get_settings():
-    with open('settings.json', 'r') as f:
+    with open(_SETTINGS_PATH, 'r') as f:
         return json.load(f)
 
 @app.put("/settings")
 def update_settings(data: dict):
-    with open('settings.json', 'w') as f:
+    with open(_SETTINGS_PATH, 'w') as f:
         json.dump(data, f)
     return {"message": "Settings updated"}
-
-# WebSocket for real-time updates
-from fastapi import WebSocket
-import asyncio
-
-@app.websocket("/ws/parking-updates")
-async def websocket_parking_updates(websocket: WebSocket, db: Session = Depends(get_db)):
-    await websocket.accept()
-    try:
-        while True:
-            slots = get_all_slots(db)
-            status = {slot.id: slot.status for slot in slots}
-            stats = get_parking_statistics(status)
-            data = {
-                "status": status,
-                "stats": stats,
-                "timestamp": "current"
-            }
-            await websocket.send_json(data)
-            await asyncio.sleep(1)  # Send updates every second
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-    finally:
-        await websocket.close()

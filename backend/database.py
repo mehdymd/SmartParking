@@ -1,15 +1,35 @@
 from sqlalchemy import create_engine, String, Integer, DateTime, Float, Text, Boolean
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from datetime import datetime
 import json
 import os
-from backend.config import Config
+try:
+    from .config import Config
+except ImportError:
+    from config import Config
 
 class Base(DeclarativeBase):
     pass
 
-engine = create_engine(Config.DATABASE_URL)
+
+def _sqlite_fallback_url():
+    db_path = os.path.join(os.path.dirname(__file__), "parking_local.db")
+    return f"sqlite:///{db_path}"
+
+
+def _build_engine(url):
+    kwargs = {"pool_pre_ping": True}
+    if url.startswith("sqlite"):
+        kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        kwargs["connect_args"] = {"connect_timeout": 5}
+    return create_engine(url, **kwargs)
+
+
+engine = _build_engine(Config.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+ACTIVE_DATABASE_URL = Config.DATABASE_URL
 
 class ParkingSlot(Base):
     __tablename__ = "parking_slots"
@@ -92,8 +112,24 @@ class ParkingSession(Base):
     exit_time: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=True)
 
+
+def _switch_database(url):
+    global engine, ACTIVE_DATABASE_URL
+    engine = _build_engine(url)
+    SessionLocal.configure(bind=engine)
+    ACTIVE_DATABASE_URL = url
+
+
 def create_tables():
-    Base.metadata.create_all(bind=engine)
+    global ACTIVE_DATABASE_URL
+    try:
+        Base.metadata.create_all(bind=engine)
+    except OperationalError as exc:
+        fallback_url = _sqlite_fallback_url()
+        print(f"Database connection failed for {ACTIVE_DATABASE_URL}: {exc}")
+        print(f"Falling back to local SQLite database at {fallback_url}")
+        _switch_database(fallback_url)
+        Base.metadata.create_all(bind=engine)
 
 def load_parking_slots_from_json():
     with open(Config.PARKING_SLOTS_JSON, 'r') as f:
@@ -110,7 +146,7 @@ def get_db():
 def get_all_slots(db):
     return db.query(ParkingSlot).all()
 
-def update_slot_status(db, slot_id, status):
+def update_slot_status(db, slot_id, status, dwell_minutes=None):
     slot = db.query(ParkingSlot).filter(ParkingSlot.id == slot_id).first()
     if slot:
         slot.status = status
@@ -119,7 +155,7 @@ def update_slot_status(db, slot_id, status):
         db.add(slot)
     slot.updated_at = datetime.utcnow()
     db.commit()
-    history = ParkingHistory(slot_id=slot_id, status=status)
+    history = ParkingHistory(slot_id=slot_id, status=status, dwell_minutes=dwell_minutes)
     db.add(history)
     db.commit()
     db.refresh(slot)

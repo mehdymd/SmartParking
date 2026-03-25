@@ -2,15 +2,47 @@ import os
 
 # Configuration settings for the Smart Parking Management System
 
+
+def _load_env_files():
+    backend_dir = os.path.dirname(__file__)
+    project_root = os.path.abspath(os.path.join(backend_dir, ".."))
+    candidates = [
+        os.path.join(project_root, ".env"),
+        os.path.join(backend_dir, ".env"),
+    ]
+
+    for env_path in candidates:
+        if not os.path.exists(env_path):
+            continue
+        try:
+            with open(env_path, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except OSError:
+            continue
+
+
+_load_env_files()
+
+
 class Config:
+    _backend_dir = os.path.dirname(__file__)
+
     # Database
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Mehdy123@localhost:5435/parking_db")
+    DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(_backend_dir, 'parking_local.db')}")
     
     # YOLO Model
     YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolov8n.pt")
     
     # Parking Slots
-    SLOTS_DIR = os.path.join(os.path.dirname(__file__), "../data")
+    SLOTS_DIR = os.path.join(_backend_dir, "../data")
     PARKING_SLOTS_JSON = os.path.join(SLOTS_DIR, "parking_slots.json")  # default / uploaded
     PARKING_SLOTS_JSON_WEBCAM = os.path.join(SLOTS_DIR, "parking_slots_webcam.json")
     
@@ -27,7 +59,7 @@ class Config:
     IOU_THRESHOLD = float(os.getenv("IOU_THRESHOLD", "0.3"))
     
     # Frame Processing
-    FRAME_SKIP = int(os.getenv("FRAME_SKIP", "5"))  # Process every 5th frame
+    FRAME_SKIP = int(os.getenv("FRAME_SKIP", "3"))  # Process every 3rd frame
 
     # Parking Management Parameters
     TRACKER = os.getenv("TRACKER", "botsort.yaml")

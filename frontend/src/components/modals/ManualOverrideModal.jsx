@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiUrl } from '../../lib/api';
 
 const ManualOverrideModal = ({ isOpen, onClose }) => {
   const [slotId, setSlotId] = useState('');
@@ -8,7 +9,7 @@ const ManualOverrideModal = ({ isOpen, onClose }) => {
 
   const handleSubmit = async () => {
     const data = { slot_id: slotId, status, reason, duration };
-    await fetch('http://localhost:8000/parking/override', {
+    await fetch(apiUrl('/parking/override'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)

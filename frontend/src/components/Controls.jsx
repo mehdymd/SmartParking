@@ -1,19 +1,55 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Camera, CameraOff, FileText, MoreVertical, Upload } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
-const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
+const dropdownItemStyle = {
+  width: '100%',
+  background: 'transparent',
+  color: 'var(--text-primary)',
+  padding: '8px 12px',
+  border: 'none',
+  borderRadius: '6px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  textAlign: 'left',
+  display: 'block',
+  transition: 'background 0.12s',
+  fontWeight: 500,
+};
+
+const getModeFromStatus = (status) => {
+  if (status?.mode) return status.mode;
+  if (status?.source === 0 || status?.source === '0') return 'camera';
+  if (status?.source) return 'upload';
+  return 'none';
+};
+
+const Controls = ({ feedState, setFeedState }) => {
   const [reportDropdown, setReportDropdown] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [cameraStatus, setCameraStatus] = useState({ active: false, open: false, source: null });
   const fileInputRef = useRef(null);
+  const cameraOn = feedState?.mode === 'camera';
 
   useEffect(() => {
     const poll = async () => {
       try {
-        const res = await fetch('http://localhost:8000/parking/camera-status');
+        const res = await fetch(apiUrl('/parking/camera-status'));
         if (!res.ok) return;
         const data = await res.json();
         setCameraStatus(data);
+        const nextMode = getModeFromStatus(data);
+        const nextSource = data?.source ?? null;
+        setFeedState((prev) => {
+          if (prev?.mode === nextMode && prev?.source === nextSource) {
+            return prev;
+          }
+          return {
+            mode: nextMode,
+            source: nextSource,
+            token: Date.now(),
+          };
+        });
       } catch {
         setCameraStatus({ active: false, open: false, source: null });
       }
@@ -21,16 +57,15 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
     poll();
     const id = setInterval(poll, 2000);
     return () => clearInterval(id);
-  }, []);
+  }, [setFeedState]);
 
   const toggleCamera = async () => {
     const next = !cameraOn;
-    setCameraOn(next);
 
     try {
       if (next) {
         // Switch to webcam source
-        const response = await fetch('http://localhost:8000/parking/set-source', {
+        const response = await fetch(apiUrl('/parking/set-source'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source: "0" })
@@ -38,17 +73,30 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
         if (!response.ok) {
           throw new Error('Camera not available');
         }
+        const payload = await response.json().catch(() => ({}));
+        setFeedState({
+          mode: payload.mode || 'camera',
+          source: payload.source ?? '0',
+          token: Date.now(),
+        });
       } else {
         // Clear source
-        await fetch('http://localhost:8000/parking/set-source', {
+        const response = await fetch(apiUrl('/parking/set-source'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source: null })
         });
+        if (!response.ok) {
+          throw new Error('Failed to clear source');
+        }
+        setFeedState({
+          mode: 'none',
+          source: null,
+          token: Date.now(),
+        });
       }
     } catch (e) {
       console.error('Error syncing camera source with backend', e);
-      setCameraOn(!next); // Revert state
       alert(`Failed to ${next ? 'start' : 'stop'} camera: ${e.message}`);
     }
   };
@@ -62,7 +110,7 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
     const formData = new FormData();
     formData.append('file', uploadedFile);
     try {
-      const response = await fetch('http://localhost:8000/parking/upload-feed', {
+      const response = await fetch(apiUrl('/parking/upload-feed'), {
         method: 'POST',
         body: formData,
       });
@@ -73,11 +121,15 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
 
       const data = await response.json();
       setUploadedFile(null);
-      alert('Upload successful');
-      if (onUpload) {
-        // Store the backend-provided source (or any truthy value)
-        onUpload(data.source || true);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
+      alert('Upload successful');
+      setFeedState({
+        mode: data.mode || 'upload',
+        source: data.source || null,
+        token: Date.now(),
+      });
     } catch (error) {
       console.error('Upload error:', error);
       alert('Upload failed');
@@ -102,16 +154,54 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
     }
   };
 
+  const downloadReport = async (url, fallbackName) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || 'Report generation failed');
+      }
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename=([^;]+)/i);
+      link.href = objectUrl;
+      link.download = (match?.[1] || fallbackName).replace(/"/g, '');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      alert(error.message || 'Report generation failed');
+    }
+  };
+
+  const emailReport = async () => {
+    try {
+      const response = await fetch(apiUrl('/export/report/email'), { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.detail || payload.error || 'Email report failed');
+      }
+      alert(payload.message || 'Report emailed');
+    } catch (error) {
+      alert(error.message || 'Email report failed');
+    } finally {
+      setReportDropdown(false);
+    }
+  };
+
   return (
-    <div className="glass" style={{ padding: '20px', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>Controls</h2>
+    <div className="glass" style={{ padding: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <h2 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>Controls</h2>
         <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
           <MoreVertical size={16} />
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
           <div style={{
             width: '8px',
@@ -154,35 +244,26 @@ const Controls = ({ onUpload, cameraOn, setCameraOn }) => {
             Generate Report ▾
           </button>
           {reportDropdown && (
-            <div className="glass" style={{
+            <div style={{
               position: 'absolute',
               top: '100%',
               left: 0,
               right: 0,
-              backgroundColor: 'var(--panel-bg)',
+              background: '#1e1e22',
               border: '1px solid var(--panel-border)',
               borderRadius: '8px',
-              padding: '8px',
+              padding: '4px',
               zIndex: 10,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+              marginTop: '4px'
             }}>
-              <button style={{
-              }} onMouseEnter={(e) => e.target.style.backgroundColor = '#1e7e34'} onMouseLeave={(e) => e.target.style.backgroundColor = '#28a745'}>
+              <button onClick={() => { downloadReport(apiUrl('/export/report/pdf'), 'SmartParking_Report.pdf'); setReportDropdown(false); }} style={dropdownItemStyle}>
                 Export PDF
               </button>
-              <button onClick={() => fileInputRef.current?.click()} style={{ backgroundColor: 'purple', color: 'white' }}>Upload Video</button>
-              <button style={{
-                width: '100%',
-                backgroundColor: 'orange',
-                color: 'white',
-                padding: '8px',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                marginBottom: '4px',
-                transition: 'background-color 0.2s',
-                fontWeight: 'bold'
-              }} onClick={() => fetch('/export/trigger', { method: 'POST' })} onMouseEnter={(e) => e.target.style.backgroundColor = '#e0a800'} onMouseLeave={(e) => e.target.style.backgroundColor = '#ffc107'}>
+              <button onClick={() => { downloadReport(apiUrl('/export/report/excel'), 'SmartParking_Report.xlsx'); setReportDropdown(false); }} style={dropdownItemStyle}>
+                Export Excel
+              </button>
+              <button onClick={emailReport} style={dropdownItemStyle}>
                 Email Report
               </button>
             </div>

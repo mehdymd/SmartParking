@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { findNearestSlot } from '../utils/navigationUtils';
+import { apiUrl } from '../lib/api';
 
 const NavigationMap = () => {
   const [settings, setSettings] = useState({});
@@ -48,7 +49,7 @@ const NavigationMap = () => {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('http://localhost:8000/settings');
+      const response = await fetch(apiUrl('/settings'));
       const data = await response.json();
       setSettings(data || {});
     } catch {
@@ -58,7 +59,7 @@ const NavigationMap = () => {
 
   const fetchSlots = async () => {
     try {
-      const response = await fetch('http://localhost:8000/parking/status');
+      const response = await fetch(apiUrl('/parking/status'));
       const data = await response.json();
       setSlots(data.status || {});
     } catch {
@@ -68,7 +69,7 @@ const NavigationMap = () => {
 
   const fetchPolygons = async () => {
     try {
-      const response = await fetch('http://localhost:8000/parking/slots');
+      const response = await fetch(apiUrl('/parking/slots'));
       const data = await response.json();
       setPolygons(Array.isArray(data.polygons) ? data.polygons : []);
     } catch {
@@ -82,8 +83,8 @@ const NavigationMap = () => {
   );
 
   return (
-    <div className="glass" style={{ padding: '20px', height: '100%' }}>
-      <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', color: 'var(--text-primary)' }}>Navigation Map</h2>
+    <div className="glass" style={{ padding: '16px' }}>
+      <h2 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '12px', color: 'var(--text-primary)' }}>Navigation Map</h2>
 
       <div style={{ marginBottom: '16px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
         <div>Available slots: <span style={{ color: 'var(--green)', fontWeight: 700 }}>{availableCount}</span></div>

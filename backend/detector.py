@@ -1,6 +1,10 @@
 from ultralytics import YOLO
 import cv2
-from .config import Config
+
+try:
+    from .config import Config
+except ImportError:
+    from config import Config
 
 class VehicleDetector:
     def __init__(self):

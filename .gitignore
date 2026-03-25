@@ -1,6 +1,29 @@
-node_modules/
-*.db
+## OS / editor noise
+.DS_Store
+*.swp
+*.swo
+
+## Python
 __pycache__/
+*.py[cod]
+*.db
 .env
+.venv/
+venv/
+
+## Node
+node_modules/
+frontend/node_modules/
+frontend/build/
+
+## Runtime artifacts
+exports/
+videos/
+*.log
+data/reload.txt
+backend/uploaded_video.mp4
+
+## Model / vendor bundles
 yolov8n.pt
+*.pt
 ultralytics_lib/

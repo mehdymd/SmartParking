@@ -1,10 +1,10 @@
 /* Global Styles */
 .app {
-  font-family: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  background: #f5f7fa;
+  font-family: Arial, sans-serif;
+  background: #f0f0f0;
   min-height: 100vh;
   color: #333;
-  line-height: 1.6;
+  line-height: 1.4;
   margin: 0;
   padding: 0;
 }
@@ -14,7 +14,7 @@
   justify-content: center;
   align-items: center;
   height: 100vh;
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   color: #666;
 }
 
@@ -24,32 +24,23 @@
 
 /* Header */
 .header {
-  background: var(--card-bg);
-  backdrop-filter: blur(10px);
-  padding: 1.5rem 2rem;
-  box-shadow: var(--shadow);
+  background: #fff;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid #ddd;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 100;
 }
 
 .header h1 {
   margin: 0;
-  font-size: 2.5rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-size: 2rem;
+  color: #333;
 }
 
 .update-time {
   font-size: 0.9rem;
-  color: var(--text-secondary);
-  opacity: 0.9;
+  color: #666;
 }
 
 /* Main Content */
@@ -61,173 +52,116 @@
 
 /* Stats Section */
 .stats-section {
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
 }
 
 .stat-card {
   background: white;
-  border-radius: 12px;
-  padding: 2rem;
+  border-radius: 8px;
+  padding: 1.5rem;
   text-align: center;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  border: 2px solid transparent;
-}
-
-.stat-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 15px rgba(0,0,0,0.15);
-}
-
-.stat-card.total { border-color: #6c757d; }
-.stat-card.available { border-color: #28a745; }
-.stat-card.occupied { border-color: #dc3545; }
-.stat-card.rate { border-color: #007bff; }
-
-.stat-card.high {
-  border-color: #ffc107;
-  background: #fff3cd;
+  border: 1px solid #ddd;
 }
 
 .stat-number {
-  font-size: 3rem;
+  font-size: 2.5rem;
   font-weight: bold;
   margin-bottom: 0.5rem;
   color: #333;
 }
 
 .stat-label {
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: #666;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 /* Parking Section */
 .parking-section {
   background: white;
-  border-radius: 12px;
-  padding: 2rem;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #ddd;
+  margin-bottom: 2rem;
 }
 
 .parking-section h2 {
   margin-top: 0;
   color: #333;
-  font-size: 2rem;
+  font-size: 1.8rem;
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .alert {
   background: #fff3cd;
   color: #856404;
   padding: 1rem;
-  border-radius: 8px;
+  border-radius: 4px;
   text-align: center;
-  font-weight: bold;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   border: 1px solid #ffeaa7;
-}
-
-.available-info {
-  margin-bottom: 2rem;
-}
-
-.available-info h3 {
-  color: #333;
-  margin-bottom: 1rem;
-  text-align: center;
-}
-
-.available-list {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.available-slot {
-  background: #d4edda;
-  color: #155724;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  font-weight: bold;
-  border: 1px solid #c3e6cb;
-}
-
-.no-slots {
-  color: #721c24;
-  font-style: italic;
 }
 
 /* Parking Grid */
 .parking-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 1rem;
-  max-width: 800px;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 0.5rem;
+  max-width: 600px;
   margin: 0 auto;
 }
 
 .parking-spot {
   aspect-ratio: 1;
-  border-radius: 8px;
+  border-radius: 4px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   font-weight: bold;
   color: white;
-  transition: transform 0.2s ease;
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.parking-spot:hover {
-  transform: scale(1.05);
 }
 
 .parking-spot.available {
-  background: linear-gradient(135deg, #51cf66, #40c057);
+  background: #28a745;
 }
 
 .parking-spot.occupied {
-  background: linear-gradient(135deg, #ff6b6b, #fa5252);
+  background: #dc3545;
 }
 
 .spot-number {
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   margin-bottom: 0.25rem;
 }
 
 .spot-status {
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   text-transform: capitalize;
-  opacity: 0.9;
 }
 
 /* Upload Section */
 .upload-section {
   background: white;
-  border-radius: 12px;
-  padding: 2rem;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  margin-bottom: 3rem;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #ddd;
+  margin-bottom: 2rem;
 }
 
 .upload-section h2 {
   margin-top: 0;
   color: #333;
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .upload-controls, .camera-controls {
@@ -252,72 +186,28 @@
   border-radius: 4px;
   cursor: pointer;
   font-size: 1rem;
-  transition: background 0.2s ease;
 }
 
 .upload-controls button:hover, .camera-controls button:hover {
   background: #0056b3;
 }
 
-.camera-controls video, .camera-controls img {
-  margin-top: 1rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  max-width: 100%;
-}
-
 /* Responsive Design */
 @media (max-width: 768px) {
-  .header h1 {
-    font-size: 2rem;
+  .main {
+    padding: 1rem;
   }
 
   .stats-grid {
     grid-template-columns: 1fr;
   }
 
-  .stat-card {
-    padding: 1.5rem;
-  }
-
-  .stat-number {
-    font-size: 2.5rem;
-  }
-
   .parking-grid {
-    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-    gap: 0.75rem;
-  }
-
-  .spot-number {
-    font-size: 1.2rem;
-  }
-
-  .main {
-    padding: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
   }
 }
 
-@media (max-width: 480px) {
-  .parking-spot {
-    min-height: 80px;
-  }
-
-  .available-list {
-    justify-content: flex-start;
-  }
-}
-
-/* Accessibility */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* Annotation Tool */
+/* Basic Annotation Tool */
 .annotation {
   padding: 20px;
   max-width: 800px;

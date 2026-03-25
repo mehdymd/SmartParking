@@ -1,207 +1,181 @@
+# Smart Parking
 
+Smart Parking is a full-stack parking operations platform built with FastAPI, React, OpenCV, and YOLOv8. It supports live camera feeds and uploaded media, tracks slot occupancy, surfaces operational alerts, estimates revenue, and provides analytics for dwell time and occupancy trends.
 
-# Smart Parking Management System
+This repository is prepared for sharing:
 
-A comprehensive Smart Parking Management System using AI-powered computer vision for real-time vehicle detection and parking space monitoring. Features a modern React dashboard with analytics, revenue tracking, live video feeds, and annotated output processing.
+- runtime build artifacts are excluded
+- local databases and uploaded media are excluded
+- tracked slot-layout files are reset to empty templates
+- model weights are not committed
 
-## Features
+## System Overview
 
-- **AI-Powered Vehicle Detection**: Uses YOLOv8 for real-time detection of vehicles in parking areas
-- **Video Upload and Live Feed**: Upload videos for processing or connect to live camera feeds with annotated output
-- **Real-Time Statistics**: Live dashboard with parking occupancy, available spaces, and rates
-- **Analytics Dashboard**: Heatmaps, dwell time analysis, and occupancy patterns over time
-- **Revenue Management**: Track parking revenue, transactions, and financial reports
-- **License Plate Recognition (LPR)**: Vehicle identification and logging system
-- **Navigation Map**: Interactive map for parking lot navigation
-- **WebSocket Updates**: Real-time data updates across the application
-- **Responsive UI**: Modern glassmorphism design with mobile support
-- **PostgreSQL Database**: Robust data storage for statistics, history, and analytics
-- **Modular Architecture**: Clean, scalable code suitable for production use
+```mermaid
+flowchart LR
+    Camera[Camera or Uploaded Feed] --> Pipeline[YOLOv8 + OpenCV Processing]
+    Pipeline --> Rules[Occupancy / LPR / Alerts / Revenue Rules]
+    Rules --> DB[(SQLite or PostgreSQL)]
+    Rules --> API[FastAPI API]
+    Rules --> WS[WebSocket Updates]
+    API --> UI[React Dashboard]
+    WS --> UI
+```
 
-## Technology Stack
+```mermaid
+flowchart TD
+    A[Slot Editor] --> B[parking_slots.json]
+    B --> C[Runtime Detection Loop]
+    C --> D[Parking Sessions]
+    C --> E[Alerts]
+    C --> F[Transactions]
+    D --> G[Analytics Page]
+    E --> H[Alerts Page]
+    F --> I[Revenue Page]
+```
+
+## Core Features
+
+- Real-time occupancy detection from webcam or uploaded image/video
+- Live annotated feed with slot, entry, and exit overlays
+- Slot editor with zone classification and flow-zone drawing
+- Recent sessions, alerts, revenue, and analytics dashboards
+- Dwell analytics and occupancy heatmaps linked to recorded system data
+- License plate recognition, wrong-way detection, speed alerts, and abandoned-vehicle alerts
+- CSV, Excel, and PDF reporting/export support
+
+## Architecture
 
 ### Backend
-- Python 3.8+
-- FastAPI (web framework)
-- OpenCV (video processing)
-- Ultralytics YOLOv8 (vehicle detection)
-- SQLAlchemy (database ORM)
-- PostgreSQL (database)
-- APScheduler (background tasks)
-- WebSockets (real-time updates)
+
+- `backend/main.py`: app startup, video processing loop, WebSocket updates
+- `backend/api.py`: REST API, uploads, analytics, revenue, alerts, slot config
+- `backend/database.py`: SQLAlchemy models and database bootstrap
+- `backend/heatmap.py`: analytics aggregation for occupancy heatmaps
+- `backend/reporting.py`: report export helpers
 
 ### Frontend
-- React.js with Hooks (UI framework)
-- CSS Variables for glassmorphism theming
-- Lucide React (icons)
-- React-Leaflet (mapping)
-- WebSockets (real-time updates)
 
-## Project Structure
+- `frontend/src/components/pages/Dashboard.jsx`: main operations view
+- `frontend/src/components/pages/AnalyticsPage.jsx`: heatmap and dwell analytics
+- `frontend/src/components/pages/RevenuePage.jsx`: revenue metrics and transactions
+- `frontend/src/components/pages/AlertsPage.jsx`: active alerts and status
+- `frontend/src/components/pages/SlotEditor.jsx`: slot, entry, and exit configuration
+- `frontend/src/lib/api.js`: API and WebSocket URL resolution
 
-```
-yolov8/
-├── backend/
-│   ├── main.py          # FastAPI app with WebSocket and video processing
-│   ├── api.py           # API endpoints for stats, upload, analytics
-│   ├── database.py      # SQLAlchemy models and database operations
-│   ├── config.py        # Configuration settings
-│   ├── tracker.py       # Object tracking logic
-│   └── scheduler.py     # Background task scheduling
-├── frontend/
-│   ├── src/
-│   │   ├── App.js       # Main app component
-│   │   ├── components/
-│   │   │   ├── Header.jsx
-│   │   ├── LiveFeed.jsx
-│   │   ├── Controls.jsx
-│   │   ├── StatsPanel.jsx
-│   │   ├── ActivityLog.jsx
-│   │   └── pages/
-│   │       ├── Dashboard.jsx
-│   │       ├── AnalyticsPage.jsx
-│   │       ├── LPRPage.jsx
-│   │       └── RevenuePage.jsx
-│   │   └── index.js     # React entry point
-│   └── package.json     # Frontend dependencies
-├── ultralytics_lib/    # Ultralytics library
-├── data/
-│   └── parking_slots.json # Parking area coordinates
-├── videos/              # Uploaded and processed videos
-├── yolov8n.pt           # YOLOv8 model
-├── requirements.txt     # Python dependencies
-└── README.md            # This file
-```
+## Tech Stack
 
-## Installation
+- Python 3.10+
+- FastAPI
+- SQLAlchemy
+- OpenCV
+- Ultralytics YOLOv8
+- EasyOCR
+- React 18
+- Chart.js
 
-### Prerequisites
-- Python 3.8 or higher
-- Node.js 14 or higher
-- PostgreSQL database
-- pip (Python package manager)
-- npm (Node.js package manager)
+## Quick Start
 
-### Backend Setup
+### 1. Install dependencies
 
-1. **Clone or navigate to the project directory**
-   ```bash
-   cd /path/to/yolov8
-   ```
-
-2. **Install Python dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Set up PostgreSQL database**
-   - Create a database: `createdb parking_db`
-   - Set environment variable: `export DATABASE_URL=postgresql://username:password@localhost/parking_db`
-
-4. **Configure the system** (optional)
-   - Edit `backend/config.py` to change settings like video source, IoU threshold, etc.
-   - Modify `data/parking_slots.json` to match your parking lot layout
-
-### Frontend Setup
-
-1. **Install Node.js dependencies**
-   ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
-
-## Configuration
-
-### Video Source
-Set the video source in `backend/config.py`:
-- `"0"` for webcam
-- Path to video file (e.g., `"parking_lot.mp4"`)
-- RTSP URL for CCTV streams
-
-### Parking Slots
-Define parking spaces in `data/parking_slots.json`:
-```json
-[
-    {
-        "id": "slot1",
-        "bbox": [x1, y1, x2, y2]
-    }
-]
-```
-Coordinates should match the video frame dimensions.
-
-### Other Settings
-- `IOU_THRESHOLD`: Minimum IoU for occupancy detection (default: 0.3)
-- `FRAME_SKIP`: Process every Nth frame (default: 5)
-
-## Running the System
-
-### Start Backend
 ```bash
-cd backend
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+pip install -r requirements.txt
+cd frontend
+npm install
 ```
 
-### Start Frontend
+### 2. Start the backend
+
+```bash
+python3 run.py
+```
+
+Backend default: `http://localhost:8000`
+
+### 3. Start the frontend
+
 ```bash
 cd frontend
 npm start
 ```
 
-The frontend will run on http://localhost:3001, backend on http://localhost:8000
+Frontend default: `http://localhost:3000`
 
-## API Endpoints
+## Environment Variables
 
-### REST Endpoints
-- `GET /parking/stats` - Real-time parking statistics
-- `GET /parking/history?limit=50` - Parking history
-- `POST /upload-video` - Upload video for processing
-- `GET /analytics/heatmap?range=30d` - Occupancy heatmap data
-- `GET /analytics/dwell` - Dwell time analytics
-- `GET /revenue/summary` - Revenue summary
-- `GET /revenue/transactions?page=1` - Revenue transactions
-- `GET /lpr/logs?limit=50` - LPR logs
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `sqlite:///backend/parking_local.db` | Database connection |
+| `VIDEO_SOURCE` | `0` | Webcam index or uploaded feed path |
+| `YOLO_MODEL_PATH` | `yolov8n.pt` | Model weights path |
+| `FRAME_SKIP` | `3` | Process every Nth frame |
+| `REACT_APP_API_BASE` | unset | Override API base URL |
+| `REACT_APP_WS_BASE` | unset | Override WebSocket base URL |
 
-### WebSocket
-- `ws://localhost:8000/ws/parking-updates` - Real-time updates
+## Local Development
 
-## Example Usage
+- The frontend proxies API traffic to `http://localhost:8000`
+- The frontend can auto-start the backend in development if port `8000` is not already active
+- The analytics page now reads real dwell/session data and zone-aware heatmap data from backend storage
 
-1. Start the backend server
-2. Ensure video source is configured correctly
-3. Open the React dashboard in browser
-4. View real-time parking status and statistics
+## Docker
 
-## Database
-
-The system uses SQLite by default (`parking.db`). To use PostgreSQL:
-1. Install `psycopg2`
-2. Change `DATABASE_URL` in `config.py`
-
-## Training Custom Model (Optional)
-
-If you need to train YOLOv8 for custom vehicle detection:
 ```bash
-python scripts/train_yolov8.py
+docker compose up --build
 ```
-Modify the script with your dataset path and parameters.
+
+Services:
+
+- Frontend: `http://localhost:3001`
+- Backend: `http://localhost:8000`
+- PostgreSQL: `localhost:5432`
+
+## Repository Hygiene
+
+This repo intentionally does not include:
+
+- local database contents
+- uploaded videos and snapshots
+- compiled frontend build output
+- Python cache files
+- YOLO weight binaries
+- personal slot/editor layouts beyond empty starter templates
+
+If you want to configure your own lot:
+
+1. start the app
+2. open the Slot Editor
+3. draw parking slots, entry, and exit zones
+4. save the configuration locally
+
+## Useful Commands
+
+```bash
+# backend
+python3 run.py
+
+# frontend
+cd frontend && npm start
+
+# production frontend build
+cd frontend && npm run build
+
+# root shortcuts
+npm run backend
+npm run frontend
+npm run build
+```
 
 ## Troubleshooting
 
-- **Video not opening**: Check video source path or camera permissions
-- **Model not loading**: Ensure internet connection for first download
-- **WebSocket errors**: Verify backend is running on correct port
-- **Database errors**: Check file permissions for SQLite database
+### Frontend shows `Proxy error` or `ECONNREFUSED`
 
-## License
+The backend is not running on `localhost:8000`.
 
-This project is for academic purposes. Please cite appropriately if used in research.
+### Frontend shows `Reconnecting...`
 
-## Contributing
+The WebSocket connection is not established. Check the backend process and `REACT_APP_WS_BASE` if you override URLs.
 
-This is a complete implementation. For modifications:
-1. Backend changes in `backend/` directory
-2. Frontend changes in `frontend/src/`
-3. Update dependencies in respective requirement files
+### Analytics looks empty
 
+The page will show empty states until the system records occupancy history and closed parking sessions.

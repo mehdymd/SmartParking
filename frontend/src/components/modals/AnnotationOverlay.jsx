@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { apiUrl } from '../../lib/api';
 
 const AnnotationOverlay = ({ isOpen, onClose }) => {
   const [polygons, setPolygons] = useState([]);
@@ -88,7 +89,7 @@ const AnnotationOverlay = ({ isOpen, onClose }) => {
 
   const saveSlots = async () => {
     const data = { parking_slots: polygons };
-    await fetch('http://localhost:8000/update-parking-slots', {
+    await fetch(apiUrl('/update-parking-slots'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)

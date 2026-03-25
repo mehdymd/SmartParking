@@ -1,54 +1,41 @@
-import React, { useState } from 'react';
+import React from 'react';
 import LiveFeed from '../LiveFeed';
 import StatsPanel from '../StatsPanel';
 import ActivityLog from '../ActivityLog';
 import Controls from '../Controls';
-import NavigationMap from '../NavigationMap';
 import AnalyticsSection from '../AnalyticsSection';
 import SessionsTable from '../SessionsTable';
 
-const Dashboard = ({ uploadedSrc, onUpload, wsStatus, wsData }) => {
-  const [cameraOn, setCameraOn] = useState(false);
+const Dashboard = ({ feedState, setFeedState, wsStatus, wsData }) => {
   return (
     <div style={{
       maxWidth: '1400px',
       margin: '0 auto',
-      padding: '100px 30px 30px 30px',
-      display: 'grid',
-      gridTemplateColumns: '65fr 35fr',
-      gap: 'var(--gap)',
+      padding: '90px 24px 24px 24px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '16px',
       boxSizing: 'border-box'
     }}>
-      {/* Left Column */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-        {/* Live Feed Panel */}
-        <LiveFeed uploadedSrc={uploadedSrc} cameraOn={cameraOn} />
-
-        {/* Recent Activity Panel */}
-        <ActivityLog />
+      {/* Top row: Live Feed + Stats & Controls */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
+        <LiveFeed feedState={feedState} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <StatsPanel wsStatus={wsStatus} liveStats={wsData?.stats} />
+          <Controls
+            feedState={feedState}
+            setFeedState={setFeedState}
+          />
+        </div>
       </div>
 
-      {/* Right Column */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-        {/* Real-time Stats Panel */}
-        <StatsPanel wsStatus={wsStatus} liveStats={wsData?.stats} />
-
-        {/* Controls Panel */}
-        <Controls
-          onUpload={onUpload}
-          cameraOn={cameraOn}
-          setCameraOn={setCameraOn}
-          hasUploaded={!!uploadedSrc}
-        />
-
-        {/* Sessions */}
+      {/* Activity + Sessions */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <ActivityLog />
         <SessionsTable />
       </div>
 
-      {/* Full-width Navigation Map */}
-      <NavigationMap />
-
-      {/* Full-width Analytics Overview */}
+      {/* Analytics */}
       <AnalyticsSection />
     </div>
   );

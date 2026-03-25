@@ -1,17 +1,30 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { wsUrl } from '../lib/api';
 
 export const useWebSocket = () => {
   const [status, setStatus] = useState('disconnected');
   const [data, setData] = useState({ status: {}, stats: {}, alerts: [] });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const manualCloseRef = useRef(false);
   const reconnectDelayMs = 3000;
 
-  const connect = () => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+  const connect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
 
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
+
+    manualCloseRef.current = false;
     setStatus('connecting');
-    wsRef.current = new WebSocket('ws://localhost:8000/ws/parking-updates');
+    wsRef.current = new WebSocket(wsUrl('/ws/parking-updates'));
 
     wsRef.current.onopen = () => {
       setStatus('connected');
@@ -52,28 +65,37 @@ export const useWebSocket = () => {
     };
 
     wsRef.current.onclose = () => {
+      wsRef.current = null;
       setStatus('disconnected');
-      reconnectTimeoutRef.current = setTimeout(() => connect(), reconnectDelayMs);
+      if (!manualCloseRef.current) {
+        reconnectTimeoutRef.current = setTimeout(() => connect(), reconnectDelayMs);
+      }
     };
 
     wsRef.current.onerror = () => {
       setStatus('error');
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.close();
+      }
     };
-  };
+  }, []);
 
-  const disconnect = () => {
+  const disconnect = useCallback(() => {
+    manualCloseRef.current = true;
     if (wsRef.current) {
       wsRef.current.close();
+      wsRef.current = null;
     }
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
-  };
+  }, []);
 
   useEffect(() => {
     connect();
     return () => disconnect();
-  }, []);
+  }, [connect, disconnect]);
 
   return { status, data, reconnect: connect, disconnect };
 };
