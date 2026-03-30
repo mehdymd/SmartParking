@@ -1,0 +1,190 @@
+.mobile-login {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1F3A5F 0%, #2E5090 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.mobile-login-content {
+  width: 100%;
+  max-width: 360px;
+  background: #FFFFFF;
+  border-radius: 16px;
+  padding: 32px 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.mobile-login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.mobile-login-header h1 {
+  font-family: 'Poppins', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1F3A5F;
+  margin: 0 0 8px;
+}
+
+.mobile-login-header p {
+  font-size: 14px;
+  color: #6B7280;
+  margin: 0;
+}
+
+.mobile-login-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #991b1b;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.mobile-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.mobile-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-input-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.mobile-input-group input {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border: 2px solid #E5E7EB;
+  border-radius: 10px;
+  font-size: 18px;
+  text-align: center;
+  letter-spacing: 4px;
+  transition: border-color 0.2s ease;
+  outline: none;
+}
+
+.mobile-input-group input:focus {
+  border-color: #00D9D9;
+}
+
+.mobile-input-group input::placeholder {
+  letter-spacing: normal;
+  font-size: 14px;
+}
+
+.mobile-otp-hint {
+  font-size: 12px;
+  color: #6B7280;
+  text-align: center;
+  margin: 0;
+}
+
+.mobile-phone-hint {
+  font-size: 12px;
+  color: #9CA3AF;
+  text-align: center;
+  margin: 0;
+}
+
+.mobile-debug-otp {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  font-size: 14px;
+  color: #92400e;
+}
+
+.mobile-debug-otp strong {
+  font-size: 18px;
+  letter-spacing: 2px;
+}
+
+.mobile-input-group input {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border: 2px solid #E5E7EB;
+  border-radius: 10px;
+  font-size: 16px;
+  text-align: left;
+  letter-spacing: normal;
+  transition: border-color 0.2s ease;
+  outline: none;
+}
+
+.mobile-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 24px;
+  background: #00D9D9;
+  color: #1F3A5F;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-primary-btn:active {
+  transform: scale(0.98);
+}
+
+.mobile-primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mobile-primary-btn:hover:not(:disabled) {
+  background: #00c4c4;
+}
+
+.mobile-full-width {
+  width: 100%;
+}
+
+.mobile-text-btn {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6B7280;
+  cursor: pointer;
+  text-align: center;
+}
+
+.mobile-text-btn:hover {
+  color: #1F3A5F;
+}
+
+.mobile-login-footer {
+  margin-top: 32px;
+  text-align: center;
+}
+
+.mobile-login-footer p {
+  font-size: 11px;
+  color: #9CA3AF;
+  line-height: 1.5;
+  margin: 0;
+}

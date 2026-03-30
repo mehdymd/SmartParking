@@ -13,6 +13,12 @@ const FLOW_LEGEND = [
   { key: 'EXIT', label: 'Exit Zone', color: '#5E3FF4' },
 ];
 
+const STATE_LEGEND = [
+  { key: 'AVAILABLE', label: 'Available Slot', color: '#F59E0B' },
+  { key: 'RESERVED', label: 'Reserved Slot', color: '#FFC400' },
+  { key: 'OCCUPIED', label: 'Occupied Slot', color: '#8C5A00' },
+];
+
 const feedImageStyle = {
   width: '100%',
   height: '100%',
@@ -24,12 +30,15 @@ const LiveFeed = ({ feedState }) => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [uploadedPlaying, setUploadedPlaying] = useState(true);
   const [overlayData, setOverlayData] = useState({ polygons: [], entry_zone: null, exit_zone: null, frame_width: 1280, frame_height: 720 });
+  const [streamError, setStreamError] = useState('');
   const cameraOn = feedState?.mode === 'camera';
   const uploadedSrc = feedState?.mode === 'upload' ? feedState?.source : null;
+  const activeCamera = (feedState?.cameras || []).find((camera) => camera.id === feedState?.activeCameraId || camera.is_active) || null;
 
   useEffect(() => {
     if (feedState?.mode === 'camera' || feedState?.mode === 'upload') {
       setRefreshKey(Date.now());
+      setStreamError('');
     }
     if (feedState?.mode === 'upload') {
       setUploadedPlaying(true);
@@ -87,14 +96,15 @@ const LiveFeed = ({ feedState }) => {
             src={apiUrl(`/parking/video-feed?key=${refreshKey}`)}
             style={feedImageStyle}
             alt="Live Camera Feed"
-            onError={(e) => (e.target.style.display = 'none')}
+            onLoad={() => setStreamError('')}
+            onError={() => setStreamError('Live camera stream is unavailable. Check the backend and selected source.')}
           />
           <div style={{
             position: 'absolute', top: '10px', left: '10px',
             backgroundColor: 'rgba(0,255,0,0.8)', color: 'white',
             padding: '4px 8px', borderRadius: '4px', fontSize: '12px'
           }}>
-            LIVE CAMERA
+            {activeCamera?.name ? `LIVE CAMERA · ${activeCamera.name}` : 'LIVE CAMERA'}
           </div>
         </>
       ) : uploadedSrc ? (
@@ -107,14 +117,15 @@ const LiveFeed = ({ feedState }) => {
             }
             style={feedImageStyle}
             alt="Annotated Video Feed"
-            onError={(e) => (e.target.style.display = 'none')}
+            onLoad={() => setStreamError('')}
+            onError={() => setStreamError('Uploaded feed is unavailable. Re-upload the file or restart the backend stream.')}
           />
           <div style={{
             position: 'absolute', top: '10px', left: '10px',
             backgroundColor: 'rgba(255,0,0,0.8)', color: 'white',
             padding: '4px 8px', borderRadius: '4px', fontSize: '12px'
           }}>
-            PROCESSED VIDEO
+            {activeCamera?.name ? `PROCESSED VIDEO · ${activeCamera.name}` : 'PROCESSED VIDEO'}
           </div>
           <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '8px' }}>
             <button
@@ -140,6 +151,26 @@ const LiveFeed = ({ feedState }) => {
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)', fontSize: '18px' }}>
           No live feed active. Upload a video or start camera.
+        </div>
+      )}
+
+      {streamError && (
+        <div style={{
+          position: 'absolute',
+          left: '50%',
+          bottom: '18px',
+          transform: 'translateX(-50%)',
+          background: 'rgba(123, 24, 24, 0.88)',
+          color: '#ffd9d9',
+          border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '10px',
+          padding: '10px 14px',
+          fontSize: '12px',
+          maxWidth: 'min(92%, 520px)',
+          textAlign: 'center',
+          backdropFilter: 'blur(6px)',
+        }}>
+          {streamError}
         </div>
       )}
 
@@ -213,6 +244,15 @@ const LiveFeed = ({ feedState }) => {
               <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: z.color }} />
               <span style={{ fontSize: '11px', color: '#fff' }}>
                 {z.key} – {z.label}
+              </span>
+            </div>
+          ))}
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.12)', margin: '4px 0' }} />
+          {STATE_LEGEND.map((z) => (
+            <div key={z.key} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: z.color }} />
+              <span style={{ fontSize: '11px', color: '#fff' }}>
+                {z.label}
               </span>
             </div>
           ))}

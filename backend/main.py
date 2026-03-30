@@ -7,14 +7,18 @@ import cv2
 import os
 import json
 import math
+import re
 import numpy as np
 from datetime import datetime
 from sqlalchemy import or_
 from ultralytics import solutions
 try:
     from .api import app as api_app
+    from .video_source import open_video_capture
     from .database import (
         create_tables,
+        ensure_default_admin,
+        ensure_default_lot,
         initialize_slots,
         SessionLocal,
         update_slot_status,
@@ -24,6 +28,7 @@ try:
         ParkingHistory,
         PlateLog,
         Alert,
+        Reservation,
     )
     from .config import Config
     from .parking_logic import get_parking_statistics
@@ -33,8 +38,11 @@ try:
     from .lpr import read_plate_with_confidence, LPR_AVAILABLE
 except ImportError:
     from api import app as api_app
+    from video_source import open_video_capture
     from database import (
         create_tables,
+        ensure_default_admin,
+        ensure_default_lot,
         initialize_slots,
         SessionLocal,
         update_slot_status,
@@ -44,6 +52,7 @@ except ImportError:
         ParkingHistory,
         PlateLog,
         Alert,
+        Reservation,
     )
     from config import Config
     from parking_logic import get_parking_statistics
@@ -77,10 +86,7 @@ def _get_total_slots_from_json():
     """Read total slot count from the saved SlotEditor JSON file."""
     try:
         src = getattr(Config, "VIDEO_SOURCE", None)
-        if src == 0 or src == "0":
-            slots_path = Config.PARKING_SLOTS_JSON_WEBCAM
-        else:
-            slots_path = Config.PARKING_SLOTS_JSON
+        slots_path = _resolve_slots_path_for_source(src, getattr(api_app.state, "active_camera_id", None))
         if os.path.exists(slots_path):
             with open(slots_path, 'r') as f:
                 data = json.load(f)
@@ -88,6 +94,78 @@ def _get_total_slots_from_json():
     except Exception:
         pass
     return 0
+
+
+def _normalize_source_value(source):
+    if source is None:
+        return None
+    if isinstance(source, str):
+        normalized = source.strip()
+        if not normalized:
+            return None
+        if normalized.isdigit():
+            return int(normalized)
+        return normalized
+    return source
+
+
+def _camera_slug(value: str):
+    base = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return base or "camera"
+
+
+def _load_camera_sources():
+    settings_path = os.path.join(os.path.dirname(__file__), "settings.json")
+    try:
+        with open(settings_path, "r", encoding="utf-8") as handle:
+            settings_data = json.load(handle)
+    except Exception:
+        settings_data = {}
+
+    cameras = []
+    for index, item in enumerate(settings_data.get("camera_sources") or []):
+        if not isinstance(item, dict):
+            continue
+        source = _normalize_source_value(item.get("source"))
+        if source is None or source == "":
+            continue
+        camera_id = _camera_slug(item.get("id") or item.get("name") or f"camera-{index + 1}")
+        cameras.append({
+            "id": camera_id,
+            "source": source,
+            "slots_path": str(item.get("slots_path") or os.path.join(Config.SLOTS_DIR, f"parking_slots_{camera_id}.json")).strip(),
+        })
+    return cameras
+
+
+def _camera_id_for_source(source, preferred_id=None):
+    cameras = _load_camera_sources()
+    if preferred_id:
+        for camera in cameras:
+            if camera["id"] == preferred_id:
+                return preferred_id
+    normalized_source = _normalize_source_value(source)
+    for camera in cameras:
+        if _normalize_source_value(camera["source"]) == normalized_source:
+            return camera["id"]
+    return None
+
+
+def _resolve_slots_path_for_source(source, active_camera_id=None):
+    cameras = _load_camera_sources()
+    if active_camera_id:
+        for camera in cameras:
+            if camera["id"] == active_camera_id and camera.get("slots_path"):
+                return camera["slots_path"]
+
+    normalized_source = _normalize_source_value(source)
+    for camera in cameras:
+        if _normalize_source_value(camera["source"]) == normalized_source and camera.get("slots_path"):
+            return camera["slots_path"]
+
+    if isinstance(normalized_source, int) or (isinstance(normalized_source, str) and normalized_source.startswith("/dev/video")):
+        return Config.PARKING_SLOTS_JSON_WEBCAM
+    return Config.PARKING_SLOTS_JSON
 
 # In-memory tracking for simple billing based on slot occupancy changes
 slot_last_state = {}   # slot_id -> last status
@@ -161,6 +239,39 @@ def _calculate_zone_amount(slot_id, duration_minutes):
     block_minutes = max(1, int(round(block_minutes)))
     billable_blocks = math.ceil(billable_minutes / block_minutes)
     return round(min(billable_blocks * price, max_daily_charge), 2)
+
+
+def _expire_stale_reservations(db):
+    now = datetime.utcnow()
+    expired = (
+        db.query(Reservation)
+        .filter(
+            Reservation.status.in_(["confirmed", "checked_in"]),
+            Reservation.end_time <= now,
+        )
+        .all()
+    )
+    if not expired:
+        return
+    for reservation in expired:
+        reservation.status = "expired"
+    db.commit()
+
+
+def _active_reserved_slot_ids(db, at_time=None):
+    current_time = at_time or datetime.utcnow()
+    _expire_stale_reservations(db)
+    rows = (
+        db.query(Reservation.slot_id)
+        .filter(
+            Reservation.status.in_(["confirmed", "checked_in"]),
+            Reservation.start_time <= current_time,
+            Reservation.end_time > current_time,
+            Reservation.slot_id.isnot(None),
+        )
+        .all()
+    )
+    return {row[0] for row in rows if row and row[0]}
 
 
 def point_in_polygon(point, polygon):
@@ -302,6 +413,8 @@ async def lifespan(app: FastAPI):
     # Startup
     print(f"Startup: configured database {Config.DATABASE_URL}", flush=True)
     create_tables()
+    ensure_default_admin()
+    ensure_default_lot()
     try:
         from . import database as database_module
     except ImportError:
@@ -382,6 +495,10 @@ app.add_middleware(
 # Mount static files for videos
 app.mount("/videos", StaticFiles(directory="videos"), name="videos")
 
+# Mount static files for uploads
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="../uploads"), name="uploads")
+
 @app.websocket("/ws/parking-updates")
 async def websocket_endpoint(websocket: WebSocket):
     global status
@@ -390,17 +507,28 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             stats = get_parking_statistics(status)
+            reserved_slot_ids = set()
+            try:
+                db = SessionLocal()
+                reserved_slot_ids = _active_reserved_slot_ids(db)
+            finally:
+                try:
+                    db.close()
+                except Exception:
+                    pass
             # Override total with saved slot count from SlotEditor
             total_from_json = _get_total_slots_from_json()
             if total_from_json > 0:
                 occupied = stats.get("occupied", 0)
+                reserved = len([slot_id for slot_id in reserved_slot_ids if status.get(slot_id) != "occupied"])
                 stats["total"] = total_from_json
-                stats["available"] = max(0, total_from_json - occupied)
-                stats["occupancy_rate"] = round((occupied / total_from_json) * 100, 2) if total_from_json > 0 else 0
+                stats["available"] = max(0, total_from_json - occupied - reserved)
+                stats["reserved"] = reserved
+                stats["occupancy_rate"] = round(((occupied + reserved) / total_from_json) * 100, 2) if total_from_json > 0 else 0
             # Zero out when camera not active
             camera_active = bool(getattr(api_app.state, "camera_open", False) and getattr(api_app.state, "camera_last_read_ok", False))
             if not camera_active:
-                stats = {"total": 0, "available": 0, "occupied": 0, "occupancy_rate": 0}
+                stats = {"total": 0, "available": 0, "occupied": 0, "reserved": 0, "occupancy_rate": 0}
             await websocket.send_json(
                 {
                     "type": "update",
@@ -447,6 +575,7 @@ async def process_video():
     api_app.state.camera_open = False
     api_app.state.camera_last_read_ok = False
     api_app.state.camera_source = None
+    api_app.state.active_camera_id = getattr(api_app.state, "active_camera_id", None)
 
     # Use startup-loaded YOLO model.
     model = getattr(app.state, "model", None)
@@ -459,9 +588,7 @@ async def process_video():
     loop = asyncio.get_event_loop()
 
     def _slots_path_for_source(source):
-        if source == 0 or source == "0":
-            return Config.PARKING_SLOTS_JSON_WEBCAM
-        return Config.PARKING_SLOTS_JSON
+        return _resolve_slots_path_for_source(source, getattr(api_app.state, "active_camera_id", None))
 
     # Cache slot JSON (reload on mtime changes)
     slots_cache = {
@@ -577,7 +704,7 @@ async def process_video():
             2,
         )
 
-    def _annotate_frame(frame, slot_bboxes_local, slot_zones_local, occupancy_map, detections_local, entry_points=None, exit_points=None):
+    def _annotate_frame(frame, slot_bboxes_local, slot_zones_local, occupancy_map, detections_local, reserved_slots_local=None, entry_points=None, exit_points=None):
         annotated = frame.copy()
 
         # Zone color map (BGR)
@@ -586,6 +713,7 @@ async def process_video():
             "B": (219, 152, 52),  # Blue
             "C": (182, 89, 155),  # Purple
         }
+        reserved_slots_local = reserved_slots_local or set()
 
         # Draw vehicle boxes first.
         for det in detections_local or []:
@@ -601,12 +729,15 @@ async def process_video():
             zone = (slot_zones_local or {}).get(slot_id, "A")
             base_color = zone_colors.get(zone, (0, 255, 0))
             if state == "occupied":
-                # Darker shade when occupied
                 color = tuple(max(0, c - 100) for c in base_color)
+                label = f"{slot_id} Z{zone} occupied"
+            elif slot_id in reserved_slots_local:
+                color = (255, 196, 0)
+                label = f"{slot_id} Z{zone} reserved"
             else:
                 color = base_color
+                label = f"{slot_id} Z{zone} available"
             cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-            label = f"{slot_id} Z{zone} {state}"
             cv2.putText(
                 annotated,
                 label,
@@ -627,6 +758,7 @@ async def process_video():
         
         current_source = Config.VIDEO_SOURCE
         api_app.state.camera_source = current_source
+        api_app.state.active_camera_id = _camera_id_for_source(current_source, getattr(api_app.state, "active_camera_id", None))
 
         # Image sources: keep a static frame and loop.
         is_image_source = isinstance(current_source, str) and current_source.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
@@ -640,15 +772,25 @@ async def process_video():
                 api_app.state.camera_open = True
             else:
                 try:
-                    cap = await loop.run_in_executor(None, cv2.VideoCapture, current_source)
+                    cap, backend_name, attempted_backends = await loop.run_in_executor(None, lambda: open_video_capture(current_source))
                 except Exception as e:
-                    print(f"Camera source {current_source} could not be opened: {e}")
+                    print(f"Camera source {current_source} could not be opened: {e}", flush=True)
+                    if current_source == 0:
+                        print("Tip: On macOS, grant camera permission in System Settings > Privacy & Security > Camera", flush=True)
+                    api_app.state.camera_open = False
                     await asyncio.sleep(5)
                     continue
-                if not cap.isOpened():
-                    print(f"Camera source {current_source} could not be opened")
+                if cap is None:
+                    tried = ", ".join(attempted_backends or ["default"])
+                    print(
+                        f"Camera source {current_source} could not be opened - tried backends: {tried}. "
+                        "Check camera permissions or device availability",
+                        flush=True,
+                    )
+                    api_app.state.camera_open = False
                     await asyncio.sleep(5)
                     continue
+                print(f"Opened camera source {current_source} using {backend_name or 'default'} backend", flush=True)
                 api_app.state.camera_open = True
         except Exception as e:
             api_app.state.camera_open = False
@@ -677,8 +819,10 @@ async def process_video():
         slot_zones = {}
         scaled_entry = None
         scaled_exit = None
+        last_reserved_slots = set()
         last_slots_mtime_built = None
         last_infer_ts = 0.0
+        last_reserved_refresh_ts = 0.0
         prev_gray = None  # for speed estimation optical flow
 
         while True:
@@ -686,6 +830,7 @@ async def process_video():
             if Config.VIDEO_SOURCE != current_source:
                 current_source = Config.VIDEO_SOURCE
                 api_app.state.camera_source = current_source
+                api_app.state.active_camera_id = _camera_id_for_source(current_source, getattr(api_app.state, "active_camera_id", None))
                 is_image_source = isinstance(current_source, str) and current_source.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
                 static_frame = None
                 if cap is not None:
@@ -702,15 +847,21 @@ async def process_video():
                         api_app.state.camera_open = True
                     else:
                         try:
-                            cap = cv2.VideoCapture(current_source)
+                            cap, backend_name, attempted_backends = await loop.run_in_executor(None, lambda: open_video_capture(current_source))
                         except Exception as e:
-                            print(f"Camera source {current_source} could not be opened: {e}")
+                            print(f"Camera source {current_source} could not be opened: {e}", flush=True)
                             api_app.state.camera_open = False
                             break
-                        if not cap.isOpened():
-                            print(f"Camera source {current_source} could not be opened")
+                        if cap is None:
+                            tried = ", ".join(attempted_backends or ["default"])
+                            print(
+                                f"Camera source {current_source} could not be opened - tried backends: {tried}. "
+                                "Check camera permissions",
+                                flush=True,
+                            )
                             api_app.state.camera_open = False
                             break
+                        print(f"Opened camera source {current_source} using {backend_name or 'default'} backend", flush=True)
                         api_app.state.camera_open = True
                 except Exception as e:
                     print(f"Error switching to source {current_source}: {e}")
@@ -723,6 +874,8 @@ async def process_video():
                 slot_zones = {}
                 scaled_entry = None
                 scaled_exit = None
+                last_reserved_slots = set()
+                last_reserved_refresh_ts = 0.0
                 prev_gray = None
             
             if static_frame is not None:
@@ -741,6 +894,19 @@ async def process_video():
                     except Exception:
                         pass
                 break
+
+            # Publish the raw frame immediately so the live feed does not sit on a
+            # placeholder while YOLO inference and database work are still running.
+            try:
+                ok_raw, buf_raw = cv2.imencode(".jpg", frame)
+                if ok_raw:
+                    raw_bytes = buf_raw.tobytes()
+                    api_app.state.latest_raw_jpeg = raw_bytes
+                    if not getattr(api_app.state, "latest_jpeg", None):
+                        api_app.state.latest_jpeg = raw_bytes
+                        api_app.state.latest_jpeg_ts = datetime.utcnow().timestamp()
+            except Exception:
+                pass
             
             frame_count += 1
             # Reload slot config immediately when JSON changes and rebuild bboxes.
@@ -803,6 +969,19 @@ async def process_video():
                     last_detections = detections
                 except Exception as e:
                     print(f"YOLO inference error: {e}")
+
+            if (now_ts - last_reserved_refresh_ts) >= 1.0:
+                try:
+                    db_reserved = SessionLocal()
+                    last_reserved_slots = _active_reserved_slot_ids(db_reserved, at_time=datetime.utcnow())
+                    last_reserved_refresh_ts = now_ts
+                except Exception as e:
+                    print(f"Error loading reserved slots: {e}")
+                finally:
+                    try:
+                        db_reserved.close()
+                    except Exception:
+                        pass
 
             # Speed estimation via optical flow
             curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -1073,15 +1252,7 @@ async def process_video():
                 except Exception as e:
                     print(f"Error updating occupancy/billing/sessions: {e}")
 
-            # Publish latest raw frame for snapshot (slot editor)
-            try:
-                ok_raw, buf_raw = cv2.imencode(".jpg", frame)
-                if ok_raw:
-                    api_app.state.latest_raw_jpeg = buf_raw.tobytes()
-            except Exception:
-                pass
-
-            annotated = _annotate_frame(frame, slot_bboxes, slot_zones, last_occupancy, last_detections, scaled_entry, scaled_exit)
+            annotated = _annotate_frame(frame, slot_bboxes, slot_zones, last_occupancy, last_detections, last_reserved_slots, scaled_entry, scaled_exit)
             if out:
                 try:
                     out.write(annotated)

@@ -19,6 +19,7 @@ frontend/build/
 ## Runtime artifacts
 exports/
 videos/
+uploads/
 *.log
 data/reload.txt
 backend/uploaded_video.mp4

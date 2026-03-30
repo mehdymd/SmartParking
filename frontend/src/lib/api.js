@@ -1,30 +1,204 @@
 const trimTrailingSlash = (value = '') => value.replace(/\/+$/, '');
+const hasWindow = typeof window !== 'undefined';
+const isAbsoluteUrl = (value = '') => /^[a-z][a-z\d+.-]*:\/\//i.test(value);
+const wsProtocolFor = (protocol = 'http:') => (protocol === 'https:' || protocol === 'wss:' ? 'wss:' : 'ws:');
 
 const apiBase = trimTrailingSlash(process.env.REACT_APP_API_BASE || '');
 const wsBase = trimTrailingSlash(process.env.REACT_APP_WS_BASE || '');
+const isDevelopment = process.env.NODE_ENV === 'development';
+const browserHost = '10.29.14.52';
+const devApiBase = `http://${browserHost}:8000`;
+const devWsBase = `ws://${browserHost}:8000`;
 
 const normalizePath = (path = '') => (path.startsWith('/') ? path : `/${path}`);
 
-export const apiUrl = (path = '') => {
-  const normalizedPath = normalizePath(path);
-  return apiBase ? `${apiBase}${normalizedPath}` : normalizedPath;
+const resolveBase = (base = '') => {
+  if (!base) return '';
+  if (isAbsoluteUrl(base) || !hasWindow) {
+    return trimTrailingSlash(base);
+  }
+  return trimTrailingSlash(new URL(base, window.location.origin).toString());
 };
 
-export const wsUrl = (path = '') => {
+const resolveWsBase = (base = '') => {
+  const resolved = resolveBase(base);
+  if (!resolved || !isAbsoluteUrl(resolved)) {
+    return resolved;
+  }
+
+  const url = new URL(resolved);
+  url.protocol = wsProtocolFor(url.protocol || window.location.protocol);
+  return trimTrailingSlash(url.toString());
+};
+
+const toWsBaseFromHttp = (base = '') => {
+  const resolved = resolveBase(base);
+  if (!resolved || !isAbsoluteUrl(resolved)) {
+    return resolved;
+  }
+
+  const url = new URL(resolved);
+  url.protocol = wsProtocolFor(url.protocol);
+  return trimTrailingSlash(url.toString());
+};
+
+export const apiUrl = (path = '') => {
   const normalizedPath = normalizePath(path);
+  if (apiBase) {
+    return `${apiBase}${normalizedPath}`;
+  }
+  if (isDevelopment) {
+    return `${devApiBase}${normalizedPath}`;
+  }
+  return normalizedPath;
+};
+
+export const wsCandidates = (path = '') => {
+  const normalizedPath = normalizePath(path);
+  const candidates = [];
+
+  const addCandidate = (base = '') => {
+    if (!base) return;
+    const candidate = `${base}${normalizedPath}`;
+    if (!candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  };
 
   if (wsBase) {
-      return `${wsBase}${normalizedPath}`;
+    addCandidate(resolveWsBase(wsBase));
   }
 
   if (apiBase) {
-    return `${apiBase.replace(/^http/i, 'ws')}${normalizedPath}`;
+    addCandidate(toWsBaseFromHttp(apiBase));
   }
 
-  if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}${normalizedPath}`;
+  if (isDevelopment) {
+    addCandidate(resolveWsBase(devWsBase));
   }
 
-  return normalizedPath;
+  if (hasWindow) {
+    const currentOrigin = new URL(window.location.origin);
+    currentOrigin.protocol = wsProtocolFor(window.location.protocol);
+    addCandidate(trimTrailingSlash(currentOrigin.toString()));
+  }
+
+  return candidates;
+};
+
+export const wsUrl = (path = '') => {
+  return wsCandidates(path)[0] || normalizePath(path);
+};
+
+const getStoredToken = () => {
+  try {
+    return localStorage.getItem('mobile_token');
+  } catch {
+    return null;
+  }
+};
+
+const setStoredToken = (token) => {
+  try {
+    if (token) {
+      localStorage.setItem('mobile_token', token);
+    } else {
+      localStorage.removeItem('mobile_token');
+    }
+  } catch {}
+};
+
+const getStoredUser = () => {
+  try {
+    const stored = localStorage.getItem('mobile_user');
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const setStoredUser = (user) => {
+  try {
+    if (user) {
+      localStorage.setItem('mobile_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('mobile_user');
+    }
+  } catch {}
+};
+
+export const mobileAuth = {
+  sendOTP: async (phone) => {
+    console.log('[DEBUG] sendOTP called with phone:', phone);
+    try {
+      const response = await fetch(apiUrl('/public/auth/send-otp'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      console.log('[DEBUG] sendOTP response status:', response.status);
+      const payload = await response.json();
+      console.log('[DEBUG] sendOTP payload:', payload);
+      if (!response.ok) throw new Error(payload.detail || 'Failed to send OTP');
+      return payload;
+    } catch (err) {
+      console.error('[DEBUG] sendOTP network error:', err);
+      if (err.message === 'Failed to fetch' || err.message.includes('network')) {
+        throw new Error('Cannot connect to server. Make sure backend is running on port 8000.');
+      }
+      throw err;
+    }
+  },
+
+  login: async (phone, otp) => {
+    console.log('[DEBUG] login called with phone:', phone, 'otp:', otp);
+    try {
+      const response = await fetch(apiUrl('/public/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, otp }),
+      });
+      console.log('[DEBUG] login response status:', response.status);
+      const payload = await response.json();
+      console.log('[DEBUG] login payload:', payload);
+      if (!response.ok) throw new Error(payload.detail || 'Login failed');
+      
+      setStoredToken(payload.token);
+      setStoredUser(payload.user);
+      return payload;
+    } catch (err) {
+      console.error('[DEBUG] login network error:', err);
+      if (err.message === 'Failed to fetch' || err.message.includes('network')) {
+        throw new Error('Cannot connect to server. Make sure backend is running on port 8000.');
+      }
+      throw err;
+    }
+  },
+
+  logout: () => {
+    setStoredToken(null);
+    setStoredUser(null);
+  },
+
+  getToken: getStoredToken,
+
+  getUser: getStoredUser,
+
+  isAuthenticated: () => {
+    return !!getStoredToken() && !!getStoredUser();
+  },
+
+  fetchWithAuth: async (url, options = {}) => {
+    const token = getStoredToken();
+    if (!token) throw new Error('Not authenticated');
+    
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  },
 };

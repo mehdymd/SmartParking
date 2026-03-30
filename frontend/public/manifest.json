@@ -1,0 +1,9 @@
+{
+  "short_name": "SmartParking",
+  "name": "Smart Parking Management System",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0b111b",
+  "theme_color": "#0b111b",
+  "description": "Smart parking operations, reservations, alerts, analytics, and billing dashboard."
+}

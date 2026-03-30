@@ -15,3 +15,4 @@ openpyxl
 reportlab
 easyocr
 certifi
+stripe

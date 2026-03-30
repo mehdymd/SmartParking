@@ -21,6 +21,7 @@ const AnalyticsPage = () => {
   const [tooltip, setTooltip] = useState('');
   const [stats, setStats] = useState({});
   const [configuredSlots, setConfiguredSlots] = useState(0);
+  const [forecast, setForecast] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchStats = useCallback(async () => {
@@ -73,6 +74,16 @@ const AnalyticsPage = () => {
     }
   }, []);
 
+  const fetchForecast = useCallback(async () => {
+    try {
+      const response = await fetch(apiUrl('/analytics/forecast?hours=6'));
+      const data = await response.json();
+      setForecast(data.data || []);
+    } catch {
+      setForecast([]);
+    }
+  }, []);
+
   const fetchDwellChart = useCallback(async () => {
     setLoading(true);
     try {
@@ -90,16 +101,18 @@ const AnalyticsPage = () => {
     fetchHeatmap();
     fetchDwellSummary();
     fetchDwellChart();
-  }, [fetchDwellChart, fetchDwellSummary, fetchHeatmap]);
+    fetchForecast();
+  }, [fetchDwellChart, fetchDwellSummary, fetchForecast, fetchHeatmap]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       fetchHeatmap();
       fetchDwellSummary();
       fetchDwellChart();
+      fetchForecast();
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchDwellChart, fetchDwellSummary, fetchHeatmap]);
+  }, [fetchDwellChart, fetchDwellSummary, fetchForecast, fetchHeatmap]);
 
   const getColor = (value) => {
     if (value < 0.25) return '#1a3a1a';
@@ -192,6 +205,24 @@ const AnalyticsPage = () => {
             Analytics will appear after the system records occupancy history and closed parking sessions.
           </div>
         )}
+
+        <div className="glass" style={{ padding: '20px', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>Occupancy Forecast</h2>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Heuristic projection from historical occupancy by hour</div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px' }}>
+            {(forecast.length ? forecast : Array.from({ length: 6 }, (_, i) => ({ time: null, occupancy: 0, confidence: 0, key: i }))).map((point, idx) => (
+              <div key={point.time || point.key || idx} className="glass" style={{ padding: '14px', textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  {point.time ? new Date(point.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{Math.round(Number(point.occupancy || 0))}%</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>confidence {Math.round(Number(point.confidence || 0) * 100)}%</div>
+              </div>
+            ))}
+          </div>
+        </div>
 
           {/* Heatmap Section */}
           <div className="glass" style={{ padding: '20px', marginBottom: '24px' }}>

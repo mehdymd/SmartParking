@@ -6,8 +6,10 @@ const frontendDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(frontendDir, '..');
 const reactScriptsBin = require.resolve('react-scripts/bin/react-scripts.js');
 const pythonCmd = process.env.PYTHON || 'python3';
-const shellCmd = process.env.SHELL || '/bin/zsh';
-const backendCommand = `${pythonCmd} -m uvicorn backend.main:app --host 127.0.0.1 --port 8000`;
+const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
+const backendPort = process.env.BACKEND_PORT || '8000';
+const backendHttpBase = process.env.REACT_APP_API_BASE || `http://${backendHost}:${backendPort}`;
+const backendWsBase = process.env.REACT_APP_WS_BASE || backendHttpBase.replace(/^http/i, 'ws');
 
 let backendProcess = null;
 let frontendProcess = null;
@@ -20,8 +22,8 @@ function checkBackend() {
   return new Promise((resolve) => {
     const request = http.get(
       {
-        host: '127.0.0.1',
-        port: 8000,
+        host: backendHost,
+        port: Number(backendPort),
         path: '/parking/camera-status',
         timeout: 1000,
       },
@@ -77,6 +79,8 @@ function startFrontend() {
     stdio: 'inherit',
     env: {
       ...process.env,
+      REACT_APP_API_BASE: backendHttpBase,
+      REACT_APP_WS_BASE: backendWsBase,
       NODE_OPTIONS: [process.env.NODE_OPTIONS, '--no-deprecation'].filter(Boolean).join(' '),
     },
   });
@@ -94,12 +98,16 @@ async function main() {
 
   const backendRunning = await checkBackend();
   if (!backendRunning) {
-    console.log('Starting backend on http://127.0.0.1:8000');
-    backendProcess = spawn(shellCmd, ['-lc', backendCommand], {
+    console.log(`Starting backend on ${backendHttpBase}`);
+    backendProcess = spawn(
+      pythonCmd,
+      ['-m', 'uvicorn', 'backend.main:app', '--host', backendHost, '--port', String(backendPort)],
+      {
       cwd: repoRoot,
       stdio: 'inherit',
       env: process.env,
-    });
+      }
+    );
 
     backendProcess.on('exit', (code) => {
       if (!frontendProcess) {
@@ -109,12 +117,12 @@ async function main() {
 
     const ready = await waitForBackend();
     if (!ready) {
-      console.error('Backend did not become ready on port 8000.');
+      console.error(`Backend did not become ready on ${backendHttpBase}.`);
       stopChildren();
       process.exit(1);
     }
   } else {
-    console.log('Using existing backend on http://127.0.0.1:8000');
+    console.log(`Using existing backend on ${backendHttpBase}`);
   }
 
   startFrontend();

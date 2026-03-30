@@ -4,7 +4,8 @@
   "scripts": {
     "backend": "python3 run.py",
     "frontend": "cd frontend && npm start",
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build",
+    "portal:tunnel": "bash scripts/start_portal_tunnel.sh"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

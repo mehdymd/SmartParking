@@ -1,1 +1,82 @@
-{"lpr_enabled": true, "lpr_confidence_threshold": 0.5, "lpr_region_hint": "", "abandoned_threshold_minutes": 120, "wrong_way_angle_threshold": 120, "speed_limit_kmh": 25, "speed_alert_kmh": 15, "pricing_enabled": true, "pricing_unit": "minute", "pricing": {"standard": 2, "compact": 1, "large": 4}, "zone_pricing": {"A": 2, "B": 1, "C": 4}, "zone_duration": {"A": 0.1, "B": 0.1, "C": 0.1}, "grace_period_minutes": 1, "max_daily_charge": 20, "export_enabled": false, "email_enabled": false, "email_recipient": "", "s3_enabled": false, "s3_bucket": "", "lot_lat": 0, "lot_lng": 0, "pixels_per_meter": 8, "entrance_pixel_x": 0, "entrance_pixel_y": 0}
+{
+  "lpr_enabled": true,
+  "lpr_confidence_threshold": 0.5,
+  "lpr_region_hint": "",
+  "abandoned_threshold_minutes": 120,
+  "wrong_way_angle_threshold": 120,
+  "speed_limit_kmh": 25,
+  "speed_alert_kmh": 15,
+  "pricing_enabled": true,
+  "pricing_unit": "minute",
+  "pricing": {
+    "standard": 2,
+    "compact": 1,
+    "large": 4
+  },
+  "zone_pricing": {
+    "A": 2,
+    "B": 1,
+    "C": 4
+  },
+  "zone_duration": {
+    "A": 1,
+    "B": 1,
+    "C": 1
+  },
+  "user_type_pricing": {
+    "employee": 0.5,
+    "visitor": 1
+  },
+  "grace_period_minutes": 1,
+  "max_daily_charge": 20,
+  "access_portal_title": "SmartParking Access",
+  "access_portal_tagline": "Reserve, monitor, pay, and follow live parking activity from one smart entry point.",
+  "access_portal_url": "",
+  "admin_qr_payments_enabled": false,
+  "admin_payment_receiver_name": "Test",
+  "admin_payment_qr_url": "https://img.sanishtech.com/u/cbc2b6499cb88887182004be794bc03a.jpg",
+  "admin_payment_notes": "Scan Alipay QR, complete the transfer, then confirm the payment in the dashboard.",
+  "stripe_enabled": true,
+  "stripe_publishable_key": "",
+  "stripe_secret_key": "",
+  "stripe_webhook_secret": "",
+  "monthly_pass_catalog": [
+    {
+      "id": "monthly-zone-a",
+      "name": "Zone A Monthly Pass",
+      "zone": "A",
+      "amount": 120,
+      "currency": "usd",
+      "interval": "month",
+      "description": "Standard monthly access"
+    },
+    {
+      "id": "monthly-zone-b",
+      "name": "Zone B Monthly Pass",
+      "zone": "B",
+      "amount": 90,
+      "currency": "usd",
+      "interval": "month",
+      "description": "Economy monthly access"
+    },
+    {
+      "id": "monthly-zone-c",
+      "name": "Zone C Monthly Pass",
+      "zone": "C",
+      "amount": 180,
+      "currency": "usd",
+      "interval": "month",
+      "description": "Premium monthly access"
+    }
+  ],
+  "export_enabled": false,
+  "email_enabled": false,
+  "email_recipient": "",
+  "s3_enabled": false,
+  "s3_bucket": "",
+  "lot_lat": 0,
+  "lot_lng": 0,
+  "pixels_per_meter": 8,
+  "entrance_pixel_x": 0,
+  "entrance_pixel_y": 0
+}

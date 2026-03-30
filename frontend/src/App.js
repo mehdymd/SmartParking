@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import Dashboard from './components/pages/Dashboard';
 import SlotEditor from './components/pages/SlotEditor';
@@ -7,26 +7,149 @@ import LPRPage from './components/pages/LPRPage';
 import RevenuePage from './components/pages/RevenuePage';
 import AlertsPage from './components/pages/AlertsPage';
 import SettingsPage from './components/pages/SettingsPage';
-import { useWebSocket } from './hooks/useWebSocket';
+import LoginPage from './components/pages/LoginPage';
+import ReservationsPage from './components/pages/ReservationsPage';
+import IncidentsPage from './components/pages/IncidentsPage';
+import MobilePortal from './components/pages/MobilePortal';
+import MobileLogin from './components/pages/MobileLogin';
+import UsersPage from './components/pages/UsersPage';
+import CashierDashboard from './components/pages/CashierDashboard';
+import { authFetch, loadAuth, saveAuth } from './lib/auth';
+import { mobileAuth } from './lib/api';
 
 function App() {
-  const [currentPage, setCurrentPage] = useState('Dashboard');
-  const [feedState, setFeedState] = useState({ mode: 'none', source: null, token: 0 });
-  const { status: wsStatus, data: wsData } = useWebSocket();
-  const [activeAlert, setActiveAlert] = useState(null);
+  const initialParams = new URLSearchParams(window.location.search);
+  const [currentPage, setCurrentPage] = useState(initialParams.get('page') || 'Dashboard');
+  const [portalMode] = useState(initialParams.get('portal') || '');
+  const [feedState, setFeedState] = useState({ mode: 'none', source: null, token: 0, activeCameraId: null, cameras: [] });
+  const [activeAlert] = useState(null);
+  const [auth, setAuth] = useState(() => loadAuth());
+  const [authReady, setAuthReady] = useState(false);
 
-  // Show latest alert as a dismissing banner.
+  const currentUser = auth?.user || null;
+  const token = auth?.token || null;
+  const wsConnected = true;
+  const wsReconnecting = false;
+  const wsStatus = 'connected';
+  const wsData = { status: {}, stats: {}, alerts: [] };
+
+  const allowedPages = useMemo(() => {
+    const role = currentUser?.role || 'user';
+    if (role === 'cashier') {
+      return ['CashierDashboard'];
+    }
+    return [
+      'Dashboard',
+      'Reservations',
+      'Incidents',
+      'Analytics',
+      'Revenue',
+      'Alerts',
+      ...(role !== 'user' ? ['SlotEditor'] : []),
+      ...(role === 'admin' ? ['Settings', 'Users'] : []),
+      ...(role === 'cashier' ? ['Users'] : []),
+      'LPR',
+    ];
+  }, [currentUser]);
+
   useEffect(() => {
-    if (!wsData?.alerts?.length) return;
-    const last = wsData.alerts[wsData.alerts.length - 1];
-    if (last?.type !== 'alert') return;
-    setActiveAlert(last);
-    const t = setTimeout(() => setActiveAlert(null), 10_000);
-    return () => clearTimeout(t);
-  }, [wsData?.alerts]);
+    const params = new URLSearchParams(window.location.search);
+    const requestedPage = params.get('page');
+    if (requestedPage) {
+      setCurrentPage(requestedPage);
+    }
+  }, []);
 
-  const wsConnected = wsStatus === 'connected';
-  const wsReconnecting = wsStatus === 'disconnected' || wsStatus === 'connecting' || wsStatus === 'error';
+  useEffect(() => {
+    if (!allowedPages.includes(currentPage)) {
+      const role = currentUser?.role || 'user';
+      setCurrentPage(role === 'cashier' ? 'CashierDashboard' : 'Dashboard');
+    }
+  }, [allowedPages, currentPage, currentUser?.role]);
+
+  useEffect(() => {
+    const validate = async () => {
+      if (!token) {
+        setAuthReady(true);
+        return;
+      }
+
+      try {
+        const response = await authFetch('/auth/me', {}, token);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Session expired');
+        const nextAuth = { token, user: payload.user };
+        setAuth(nextAuth);
+        saveAuth(nextAuth);
+        const role = payload.user?.role || 'user';
+        setCurrentPage(role === 'cashier' ? 'CashierDashboard' : 'Dashboard');
+      } catch {
+        setAuth(null);
+        saveAuth(null);
+      } finally {
+        setAuthReady(true);
+      }
+    };
+
+    validate();
+  }, [token]);
+
+  const handleLogin = (payload) => {
+    saveAuth(payload);
+    setAuth(payload);
+    const role = payload.user?.role || 'user';
+    setCurrentPage(role === 'cashier' ? 'CashierDashboard' : 'Dashboard');
+    setAuthReady(true);
+  };
+
+  const handleLogout = () => {
+    saveAuth(null);
+    setAuth(null);
+    setCurrentPage('Dashboard');
+  };
+
+  const [mobileTab, setMobileTab] = useState('dashboard');
+  const [mobileUser, setMobileUser] = useState(() => mobileAuth.getUser());
+  const [mobileAuthReady, setMobileAuthReady] = useState(false);
+
+  useEffect(() => {
+    const token = mobileAuth.getToken();
+    if (token) {
+      setMobileAuthReady(true);
+    } else {
+      setMobileAuthReady(true);
+    }
+  }, []);
+
+  const handleMobileLogin = (user) => {
+    setMobileUser(user);
+  };
+
+  const handleMobileLogout = () => {
+    mobileAuth.logout();
+    setMobileUser(null);
+    setMobileTab('dashboard');
+  };
+
+  if (portalMode === 'access') {
+    if (!mobileAuthReady) {
+      return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Loading...</div>;
+    }
+
+    if (!mobileUser) {
+      return <MobileLogin onLogin={handleMobileLogin} />;
+    }
+
+    return <MobilePortal activeTab={mobileTab} onTabChange={setMobileTab} user={mobileUser} onLogout={handleMobileLogout} />;
+  }
+
+  if (!authReady) {
+    return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'var(--text-primary)' }}>Loading...</div>;
+  }
+
+  if (!currentUser || !token) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   return (
     <>
@@ -34,8 +157,10 @@ function App() {
         currentPage={currentPage}
         setCurrentPage={setCurrentPage}
         wsConnected={wsConnected}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
-      {wsReconnecting && (
+      {wsReconnecting && currentUser && (
         <div style={{
           position: 'fixed',
           top: '80px',
@@ -76,14 +201,20 @@ function App() {
             setFeedState={setFeedState}
             wsStatus={wsStatus}
             wsData={wsData}
+            token={token}
+            currentUser={currentUser}
           />
         )}
+        {currentPage === 'Reservations' && <ReservationsPage token={token} user={currentUser} />}
+        {currentPage === 'Incidents' && <IncidentsPage token={token} user={currentUser} />}
         {currentPage === 'SlotEditor' && <SlotEditor />}
         {currentPage === 'Analytics' && <AnalyticsPage />}
         {currentPage === 'LPR' && <LPRPage />}
         {currentPage === 'Revenue' && <RevenuePage />}
         {currentPage === 'Alerts' && <AlertsPage />}
-        {currentPage === 'Settings' && <SettingsPage />}
+        {currentPage === 'Settings' && <SettingsPage token={token} />}
+        {currentPage === 'Users' && <UsersPage currentUser={currentUser} />}
+        {currentPage === 'CashierDashboard' && <CashierDashboard currentUser={currentUser} token={token} onLogout={handleLogout} />}
       </div>
     </>
   );

@@ -42,6 +42,7 @@ const StatsPanel = ({ wsStatus = 'disconnected', liveStats = null }) => {
   const total = stats.total ?? 0;
   const available = stats.available ?? 0;
   const occupied = stats.occupied ?? 0;
+  const reserved = stats.reserved ?? 0;
   const rateColor = getGaugeColor(occupancyRatePct);
   const pct = Math.round(occupancyRatePct);
 
@@ -55,7 +56,7 @@ const StatsPanel = ({ wsStatus = 'disconnected', liveStats = null }) => {
       </div>
 
       {/* Stat row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', marginBottom: '12px' }}>
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
           <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Total</div>
           <div style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)' }}>{total}</div>
@@ -67,6 +68,10 @@ const StatsPanel = ({ wsStatus = 'disconnected', liveStats = null }) => {
         <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
           <div style={{ fontSize: '10px', color: '#e88', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Occupied</div>
           <div style={{ fontSize: '22px', fontWeight: '700', color: '#EF4444' }}>{occupied}</div>
+        </div>
+        <div style={{ background: 'rgba(245,158,11,0.10)', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
+          <div style={{ fontSize: '10px', color: '#ffd383', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Reserved</div>
+          <div style={{ fontSize: '22px', fontWeight: '700', color: '#F59E0B' }}>{reserved}</div>
         </div>
         <div style={{ background: `${rateColor}12`, borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
           <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Rate</div>

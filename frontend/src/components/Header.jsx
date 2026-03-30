@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 
-const Header = ({ currentPage, setCurrentPage, wsConnected = true }) => {
+const Header = ({ currentPage, setCurrentPage, wsConnected = true, currentUser = null, onLogout = null }) => {
   const [sessionTime, setSessionTime] = useState(0);
   const [alertCount, setAlertCount] = useState(0);
 
@@ -34,7 +34,17 @@ const Header = ({ currentPage, setCurrentPage, wsConnected = true }) => {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const pages = ['Dashboard', 'Analytics', 'SlotEditor', 'Revenue', 'Alerts', 'Settings'];
+  const role = currentUser?.role || 'viewer';
+  const pages = [
+    'Dashboard',
+    'Reservations',
+    'Incidents',
+    'Analytics',
+    'Revenue',
+    'Alerts',
+    ...(role !== 'viewer' ? ['SlotEditor'] : []),
+    ...(role === 'admin' ? ['Settings'] : []),
+  ];
 
   return (
     <header style={{
@@ -96,6 +106,22 @@ const Header = ({ currentPage, setCurrentPage, wsConnected = true }) => {
         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
           Session: {formatTime(sessionTime)}
         </span>
+        {currentUser && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600 }}>{currentUser.full_name || currentUser.username}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{currentUser.role}</div>
+            </div>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--panel-border)', background: 'rgba(255,255,255,0.03)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                Logout
+              </button>
+            )}
+          </div>
+        )}
         <button style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative' }} onClick={() => setCurrentPage('Alerts')}>
           <Bell size={16} color="var(--text-primary)" />
           {alertCount > 0 && (

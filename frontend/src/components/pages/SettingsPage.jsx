@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../../lib/api';
+import { authFetch } from '../../lib/auth';
 
 const styles = `
   .sp-page { padding: 24px; max-width: 1400px; margin: 0 auto; }
@@ -124,27 +125,41 @@ const Card = ({ icon, color, title, desc, children, wide = false }) => (
   </div>
 );
 
-const SettingsPage = () => {
+const SettingsPage = ({ token }) => {
   const [settings, setSettings] = useState({});
 
-  useEffect(() => { fetchSettings(); }, []);
+  useEffect(() => { fetchSettings(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchSettings = async () => {
-    const response = await fetch(apiUrl('/settings'));
+    const response = await authFetch('/settings', {}, token);
     const data = await response.json();
     setSettings(data);
   };
 
   const updateSettings = async (updates) => {
     const newSettings = { ...settings, ...updates };
-    const response = await fetch(apiUrl('/settings'), {
+    const response = await authFetch('/settings', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newSettings)
-    });
+    }, token);
     if (response.ok) {
       alert('Settings saved');
       setSettings(newSettings);
+    }
+  };
+
+  const portalUrl = typeof window !== 'undefined'
+    ? (settings.access_portal_url || `${window.location.origin}${window.location.pathname}?portal=access`)
+    : (settings.access_portal_url || '');
+  const portalQrUrl = portalUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(portalUrl)}` : '';
+
+  const copyPortalUrl = async () => {
+    if (!portalUrl || !navigator?.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(portalUrl);
+      alert('Portal link copied');
+    } catch {
+      alert('Failed to copy portal link');
     }
   };
 
@@ -325,6 +340,66 @@ const SettingsPage = () => {
           </div>
         </Card>
 
+        <Card wide icon="⌁" color="#3498DB" title="System Access QR" desc="Create a public QR so users can scan and reserve, check status, pay, and track their booking">
+          <div className="sp-section">
+            <div className="sp-grid sp-grid-2">
+              <div className="sp-field">
+                <label>Portal Title</label>
+                <input className="sp-input" type="text" value={s.access_portal_title || ''} placeholder="SmartParking Access"
+                  onChange={e => setSettings({ ...s, access_portal_title: e.target.value })} />
+              </div>
+              <div className="sp-field">
+                <label>Portal Tagline</label>
+                <input className="sp-input" type="text" value={s.access_portal_tagline || ''} placeholder="Reserve, monitor, pay, and follow live parking activity"
+                  onChange={e => setSettings({ ...s, access_portal_tagline: e.target.value })} />
+              </div>
+            </div>
+            <div className="sp-field" style={{ marginTop: 14 }}>
+              <label>Public Portal URL</label>
+              <input className="sp-input" type="text" value={s.access_portal_url || ''} placeholder="Optional override, for example http://10.29.14.9:3000/?portal=access"
+                onChange={e => setSettings({ ...s, access_portal_url: e.target.value })} />
+            </div>
+          </div>
+
+          <div className="sp-section">
+            <div className="sp-section-label">QR Preview</div>
+            <div className="sp-nested" style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
+              <div style={{ display: 'grid', justifyItems: 'center', gap: 10 }}>
+                {portalQrUrl ? (
+                  <img
+                    src={portalQrUrl}
+                    alt="System access QR"
+                    style={{ width: 200, maxWidth: '100%', aspectRatio: '1 / 1', objectFit: 'contain', borderRadius: 16, background: '#fff', padding: 12 }}
+                  />
+                ) : (
+                  <div style={{ width: 200, aspectRatio: '1 / 1', borderRadius: 16, border: '1px dashed rgba(255,255,255,0.12)', display: 'grid', placeItems: 'center', color: 'var(--text-muted)' }}>
+                    No QR yet
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.7 }}>
+                  Scan opens the user portal where customers can reserve a slot, check a reservation by confirmation code, open payment QR, and track booking status on mobile.
+                </div>
+                <textarea className="sp-input" readOnly rows="3" value={portalUrl} style={{ resize: 'vertical', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }} />
+                <div className="sp-btns-inline">
+                  <button className="sp-btn sp-btn-secondary" onClick={copyPortalUrl}>Copy Link</button>
+                  <a className="sp-btn sp-btn-secondary" href={portalUrl} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Open Portal</a>
+                  <a className="sp-btn sp-btn-secondary" href={portalQrUrl} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Open QR</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="sp-actions">
+            <button className="sp-btn sp-btn-primary" onClick={() => updateSettings({
+              access_portal_title: s.access_portal_title,
+              access_portal_tagline: s.access_portal_tagline,
+              access_portal_url: s.access_portal_url
+            })}>Save Access QR</button>
+          </div>
+        </Card>
+
         {/* ── Export ─────────────────────────── */}
         <Card icon="↗" color="#8E44AD" title="Export & Notifications" desc="Data export, email alerts, and cloud storage">
           <div className="sp-section">
@@ -425,5 +500,7 @@ const SettingsPage = () => {
     </>
   );
 };
+
+const looksLikeImageSource = (value) => typeof value === 'string' && /^(https?:\/\/|data:image\/|\/)/i.test(value.trim());
 
 export default SettingsPage;

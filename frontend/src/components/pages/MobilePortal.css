@@ -1,0 +1,1265 @@
+:root {
+  --mobile-primary: #1F3A5F;
+  --mobile-primary-light: #2E5090;
+  --mobile-accent: #00D9D9;
+  --mobile-success: #10B981;
+  --mobile-warning: #F59E0B;
+  --mobile-danger: #EF4444;
+  --mobile-background: #F9FAFB;
+  --mobile-card: #FFFFFF;
+  --mobile-text: #111827;
+  --mobile-text-secondary: #6B7280;
+  --mobile-border: #E5E7EB;
+  --mobile-radius: 8px;
+  --mobile-radius-lg: 12px;
+  --mobile-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --mobile-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-portal {
+  min-height: 100vh;
+  background: var(--mobile-background);
+  color: var(--mobile-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  padding-bottom: 70px;
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+.mobile-page {
+  min-height: 100vh;
+}
+
+.mobile-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--mobile-card);
+  border-bottom: 1px solid var(--mobile-border);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.mobile-header > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mobile-logout-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--mobile-border);
+  background: var(--mobile-card);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mobile-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-logout-btn:hover {
+  background: #FEE2E2;
+  color: #991b1b;
+  border-color: #FECACA;
+}
+
+.mobile-user-welcome {
+  background: rgba(0, 217, 217, 0.1);
+  border: 1px solid rgba(0, 217, 217, 0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--mobile-primary);
+  margin-bottom: 16px;
+}
+
+.mobile-back-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--mobile-background);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-title {
+  font-family: 'Poppins', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--mobile-text);
+  margin: 0;
+}
+
+.mobile-subtitle {
+  font-size: 12px;
+  color: var(--mobile-text-secondary);
+  margin: 2px 0 0;
+}
+
+.mobile-content {
+  padding: 16px;
+  padding-bottom: calc(16px + 70px);
+}
+
+.mobile-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mobile-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 12px;
+}
+
+.mobile-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--mobile-radius);
+  margin-bottom: 16px;
+}
+
+.mobile-status-online {
+  background: rgba(16, 185, 129, 0.1);
+  color: #065f46;
+}
+
+.mobile-status-offline {
+  background: rgba(239, 68, 68, 0.1);
+  color: #991b1b;
+}
+
+.mobile-status-degraded {
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+}
+
+.mobile-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.mobile-status-text {
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.mobile-status-meta {
+  font-size: 11px;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.mobile-occupancy-card {
+  background: linear-gradient(135deg, rgba(31, 58, 95, 0.05), rgba(0, 217, 217, 0.05));
+  border-radius: var(--mobile-radius-lg);
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.mobile-occupancy-info {
+  flex: 1;
+}
+
+.mobile-occupancy-label {
+  font-size: 12px;
+  color: var(--mobile-text-secondary);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.mobile-occupancy-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.mobile-occupancy-percent {
+  font-family: 'Poppins', sans-serif;
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--mobile-primary);
+}
+
+.mobile-occupancy-unit {
+  font-size: 14px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-occupancy-detail {
+  font-size: 12px;
+  color: var(--mobile-text-secondary);
+  margin-top: 8px;
+}
+
+.mobile-occupancy-ring {
+  width: 80px;
+  height: 80px;
+  position: relative;
+}
+
+.mobile-occupancy-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.mobile-occupancy-ring circle:last-child {
+  transition: stroke-dasharray 0.5s ease;
+}
+
+.mobile-occupancy-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--mobile-primary);
+}
+
+.mobile-quick-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.mobile-quick-stat {
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius);
+  padding: 16px;
+  text-align: center;
+  box-shadow: var(--mobile-shadow);
+}
+
+.mobile-quick-stat-value {
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--mobile-accent);
+}
+
+.mobile-quick-stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--mobile-text-secondary);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mobile-zones {
+  margin-bottom: 24px;
+}
+
+.mobile-zone-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.mobile-zone-tab {
+  flex: 1;
+  padding: 12px 16px;
+  border: 1px solid var(--mobile-border);
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mobile-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-zone-tab.active {
+  background: var(--mobile-primary);
+  color: white;
+  border-color: var(--mobile-primary);
+}
+
+.mobile-zone-card {
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius-lg);
+  padding: 20px;
+  box-shadow: var(--mobile-shadow);
+}
+
+.mobile-zone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.mobile-zone-name {
+  font-family: 'Poppins', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.mobile-zone-label {
+  font-size: 12px;
+  color: var(--mobile-text-secondary);
+  margin-top: 2px;
+}
+
+.mobile-zone-badge {
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mobile-zone-progress {
+  margin-bottom: 16px;
+}
+
+.mobile-zone-progress-bar {
+  height: 8px;
+  background: var(--mobile-border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.mobile-zone-progress-fill {
+  height: 100%;
+  background: var(--mobile-accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.mobile-zone-progress-text {
+  font-size: 12px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-zone-pricing {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--mobile-border);
+  margin-bottom: 16px;
+}
+
+.mobile-zone-price {
+  text-align: center;
+}
+
+.mobile-zone-price-label {
+  display: block;
+  font-size: 11px;
+  color: var(--mobile-text-secondary);
+  margin-bottom: 4px;
+}
+
+.mobile-zone-price-value {
+  font-family: 'Poppins', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--mobile-text);
+}
+
+.mobile-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.mobile-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 24px;
+  background: var(--mobile-accent);
+  color: var(--mobile-primary);
+  border: none;
+  border-radius: var(--mobile-radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-primary-btn:active {
+  transform: scale(0.98);
+}
+
+.mobile-primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mobile-secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 24px;
+  background: var(--mobile-card);
+  color: var(--mobile-text);
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-secondary-btn:active {
+  transform: scale(0.98);
+}
+
+.mobile-full-width {
+  width: 100%;
+}
+
+.mobile-zone-select {
+  margin-bottom: 24px;
+}
+
+.mobile-zone-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.mobile-zone-select-card {
+  padding: 16px 12px;
+  background: var(--mobile-card);
+  border: 2px solid var(--mobile-border);
+  border-radius: var(--mobile-radius);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-zone-select-card.active {
+  border-color: var(--mobile-accent);
+  background: rgba(0, 217, 217, 0.05);
+}
+
+.mobile-zone-select-name {
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--mobile-primary);
+}
+
+.mobile-zone-select-label {
+  display: block;
+  font-size: 10px;
+  color: var(--mobile-text-secondary);
+  margin-top: 4px;
+}
+
+.mobile-zone-select-avail {
+  display: block;
+  font-size: 11px;
+  color: var(--mobile-accent);
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.mobile-parking-grid {
+  margin-bottom: 24px;
+}
+
+.mobile-parking-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.mobile-parking-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-parking-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.mobile-legend-available {
+  background: var(--mobile-accent);
+}
+
+.mobile-legend-occupied {
+  background: var(--mobile-border);
+}
+
+.mobile-parking-slots {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  padding: 16px;
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius-lg);
+  box-shadow: var(--mobile-shadow);
+}
+
+.mobile-parking-slot {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--mobile-radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: var(--mobile-accent);
+  color: var(--mobile-primary);
+}
+
+.mobile-parking-slot.selected {
+  background: var(--mobile-primary);
+  color: white;
+  box-shadow: 0 0 0 3px rgba(0, 217, 217, 0.3);
+}
+
+.mobile-parking-empty {
+  grid-column: 1 / -1;
+  padding: 24px;
+  text-align: center;
+  color: var(--mobile-text-secondary);
+  font-size: 14px;
+}
+
+.mobile-parking-note {
+  font-size: 11px;
+  color: var(--mobile-text-secondary);
+  text-align: center;
+  margin-top: 12px;
+}
+
+.mobile-duration-select {
+  margin-bottom: 24px;
+}
+
+.mobile-duration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.mobile-duration-card {
+  padding: 16px;
+  background: var(--mobile-card);
+  border: 2px solid var(--mobile-border);
+  border-radius: var(--mobile-radius);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-duration-card.active {
+  border-color: var(--mobile-accent);
+  background: rgba(0, 217, 217, 0.05);
+}
+
+.mobile-duration-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--mobile-text);
+}
+
+.mobile-duration-price {
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--mobile-accent);
+  margin-top: 8px;
+}
+
+.mobile-booking-summary {
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius-lg);
+  padding: 16px;
+  margin-bottom: 24px;
+  box-shadow: var(--mobile-shadow);
+}
+
+.mobile-summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 14px;
+}
+
+.mobile-summary-row span:first-child {
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-summary-total {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid var(--mobile-border);
+  font-weight: 600;
+}
+
+.mobile-summary-amount {
+  font-family: 'Poppins', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--mobile-accent);
+}
+
+.mobile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-form input,
+.mobile-form select,
+.mobile-form textarea {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius);
+  font-size: 14px;
+  background: var(--mobile-card);
+  color: var(--mobile-text);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.mobile-form input:focus,
+.mobile-form select:focus,
+.mobile-form textarea:focus {
+  border-color: var(--mobile-accent);
+}
+
+.mobile-form textarea {
+  padding: 12px 16px;
+  resize: vertical;
+  min-height: 100px;
+}
+
+.mobile-result-card {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--mobile-radius-lg);
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.mobile-result-card strong {
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  font-size: 16px;
+  color: #065f46;
+  margin-bottom: 4px;
+}
+
+.mobile-result-card span {
+  font-size: 14px;
+  color: #065f46;
+}
+
+.mobile-search-section {
+  margin-bottom: 24px;
+}
+
+.mobile-toggle-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.mobile-toggle {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid var(--mobile-border);
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mobile-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-toggle.active {
+  background: var(--mobile-primary);
+  color: white;
+  border-color: var(--mobile-primary);
+}
+
+.mobile-search-input {
+  display: flex;
+  gap: 12px;
+}
+
+.mobile-search-input input {
+  flex: 1;
+  min-height: 48px;
+}
+
+.mobile-vehicle-result {
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius-lg);
+  padding: 20px;
+  box-shadow: var(--mobile-shadow);
+}
+
+.mobile-vehicle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.mobile-vehicle-plate {
+  font-family: 'Poppins', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.mobile-vehicle-status {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mobile-vehicle-status.paid {
+  background: rgba(16, 185, 129, 0.1);
+  color: #065f46;
+}
+
+.mobile-vehicle-status.pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+}
+
+.mobile-vehicle-details {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--mobile-border);
+  border-bottom: 1px solid var(--mobile-border);
+}
+
+.mobile-vehicle-details div span {
+  display: block;
+  font-size: 11px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-vehicle-details div strong {
+  display: block;
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.mobile-vehicle-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.mobile-empty-state {
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius-lg);
+  padding: 32px;
+  text-align: center;
+  box-shadow: var(--mobile-shadow);
+}
+
+.mobile-empty-state svg {
+  display: block;
+  margin: 0 auto 12px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-empty-state p {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.mobile-empty-hint {
+  font-size: 13px;
+  color: var(--mobile-text-secondary);
+  margin-top: 8px !important;
+  font-weight: 400 !important;
+}
+
+.mobile-help-card {
+  background: rgba(0, 217, 217, 0.05);
+  border: 1px solid rgba(0, 217, 217, 0.2);
+  border-radius: var(--mobile-radius-lg);
+  padding: 20px;
+}
+
+.mobile-help-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mobile-primary);
+  margin: 0 0 12px;
+}
+
+.mobile-help-card ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mobile-help-card li {
+  font-size: 13px;
+  color: var(--mobile-text-secondary);
+  line-height: 1.8;
+}
+
+.mobile-issue-types {
+  margin-bottom: 24px;
+}
+
+.mobile-issue-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.mobile-issue-card {
+  padding: 20px;
+  background: var(--mobile-card);
+  border: 2px solid var(--mobile-border);
+  border-radius: var(--mobile-radius);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mobile-issue-card.active {
+  border-color: var(--mobile-accent);
+  background: rgba(0, 217, 217, 0.05);
+}
+
+.mobile-issue-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-issue-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mobile-text);
+}
+
+.mobile-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  border: 2px dashed var(--mobile-border);
+  border-radius: var(--mobile-radius);
+  font-size: 14px;
+  color: var(--mobile-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-upload svg {
+  display: flex;
+  align-items: center;
+}
+
+.mobile-upload input {
+  display: none;
+}
+
+.mobile-incidents {
+  margin-top: 24px;
+}
+
+.mobile-incident-card {
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius-lg);
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--mobile-border);
+}
+
+.mobile-incident-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.mobile-incident-header strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--mobile-text);
+  flex: 1;
+  margin-right: 10px;
+}
+
+.mobile-incident-status {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.mobile-incident-status.open {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.mobile-incident-status.investigating {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.mobile-incident-status.resolved {
+  background: rgba(16, 185, 129, 0.15);
+  color: #22c55e;
+}
+
+.mobile-incident-desc {
+  font-size: 13px;
+  color: var(--mobile-text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.mobile-incident-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mobile-incident-meta span {
+  font-size: 11px;
+  color: var(--mobile-text-secondary);
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.mobile-pass-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.mobile-pass-card {
+  padding: 16px;
+  background: var(--mobile-card);
+  border: 2px solid var(--mobile-border);
+  border-radius: var(--mobile-radius);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-pass-card.selected {
+  border-color: var(--mobile-accent);
+  background: rgba(0, 217, 217, 0.05);
+}
+
+.mobile-pass-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mobile-text);
+}
+
+.mobile-pass-price {
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--mobile-accent);
+  margin: 8px 0;
+}
+
+.mobile-pass-card small {
+  display: block;
+  font-size: 11px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-flash {
+  position: fixed;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  max-width: 90%;
+}
+
+.mobile-flash.success {
+  background: #22c55e;
+  color: white;
+}
+
+.mobile-flash.error {
+  background: #ef4444;
+  color: white;
+}
+
+.mobile-payment-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.mobile-payment-sheet {
+  background: var(--mobile-card);
+  border-radius: var(--mobile-radius-lg);
+  padding: 24px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.mobile-payment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.mobile-payment-header h3 {
+  font-family: 'Poppins', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.mobile-payment-header button {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--mobile-background);
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.mobile-payment-qr {
+  padding: 20px;
+  background: white;
+  border-radius: var(--mobile-radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.mobile-payment-qr img {
+  max-width: 200px;
+  max-height: 200px;
+}
+
+.mobile-payment-fallback {
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+  text-align: center;
+}
+
+.mobile-payment-meta {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid var(--mobile-border);
+  border-bottom: 1px solid var(--mobile-border);
+  margin-bottom: 16px;
+}
+
+.mobile-payment-meta span {
+  font-size: 12px;
+  color: var(--mobile-text-secondary);
+}
+
+.mobile-payment-meta strong {
+  font-size: 14px;
+}
+
+.mobile-payment-instructions {
+  font-size: 13px;
+  color: var(--mobile-text-secondary);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--mobile-card);
+  border-top: 1px solid var(--mobile-border);
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 0;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0));
+  z-index: 50;
+}
+
+.mobile-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  pointer-events: auto;
+  position: relative;
+  z-index: 51;
+}
+
+.mobile-nav-item.active {
+  color: var(--mobile-accent);
+}
+
+.mobile-nav-icon {
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-nav-item span:last-child {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.mobile-issue-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+@media (min-width: 640px) {
+  .mobile-portal {
+    max-width: 480px;
+    margin: 0 auto;
+    border-left: 1px solid var(--mobile-border);
+    border-right: 1px solid var(--mobile-border);
+  }
+
+  .mobile-bottom-nav {
+    max-width: 480px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
+.capitalize {
+  text-transform: capitalize;
+}
+
+.mobile-payment-options {
+  margin-bottom: 16px;
+}
+
+.mobile-payment-label {
+  display: block;
+  font-size: 13px;
+  color: var(--mobile-text-secondary);
+  margin-bottom: 8px;
+}
+
+.mobile-payment-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.mobile-payment-btn {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid var(--mobile-border);
+  background: var(--mobile-background);
+  color: var(--mobile-text);
+  border-radius: var(--mobile-radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.mobile-payment-btn.active {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}

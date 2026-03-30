@@ -43,6 +43,8 @@ flowchart TD
 - Dwell analytics and occupancy heatmaps linked to recorded system data
 - License plate recognition, wrong-way detection, speed alerts, and abandoned-vehicle alerts
 - CSV, Excel, and PDF reporting/export support
+- Multi-lot management, waitlist queueing, incident reporting, monthly passes, and API integration tokens
+- Installable PWA shell with offline caching of the app shell
 
 ## Architecture
 
@@ -58,6 +60,10 @@ flowchart TD
 
 - `frontend/src/components/pages/Dashboard.jsx`: main operations view
 - `frontend/src/components/pages/AnalyticsPage.jsx`: heatmap and dwell analytics
+- `frontend/src/components/pages/LotsPage.jsx`: multi-lot management
+- `frontend/src/components/pages/WaitlistPage.jsx`: queue and promotion workflows
+- `frontend/src/components/pages/IncidentsPage.jsx`: incident reporting with image upload
+- `frontend/src/components/pages/PassesPage.jsx`: monthly pass billing
 - `frontend/src/components/pages/RevenuePage.jsx`: revenue metrics and transactions
 - `frontend/src/components/pages/AlertsPage.jsx`: active alerts and status
 - `frontend/src/components/pages/SlotEditor.jsx`: slot, entry, and exit configuration
@@ -101,6 +107,26 @@ npm start
 
 Frontend default: `http://localhost:3000`
 
+### Public Portal Without Localtunnel
+
+Use Cloudflare Tunnel instead of `localtunnel` so visitors do not see the `loca.lt` password reminder page.
+
+1. Start the backend: `python3 run.py`
+2. Start the frontend: `cd frontend && npm start`
+3. Start the public portal tunnel from the repo root:
+
+```bash
+npm run portal:tunnel
+```
+
+This command:
+
+- starts a temporary `cloudflared` quick tunnel to `http://127.0.0.1:3000`
+- discovers the public `https://<random>.trycloudflare.com` URL
+- saves it into `backend/settings.json` as `access_portal_url`
+
+The saved portal URL will include `?portal=access` so the QR/settings page points directly at the public access portal.
+
 ## Environment Variables
 
 | Variable | Default | Purpose |
@@ -111,12 +137,38 @@ Frontend default: `http://localhost:3000`
 | `FRAME_SKIP` | `3` | Process every Nth frame |
 | `REACT_APP_API_BASE` | unset | Override API base URL |
 | `REACT_APP_WS_BASE` | unset | Override WebSocket base URL |
+| `STRIPE_SECRET_KEY` | unset | Stripe server secret key |
+| `STRIPE_PUBLISHABLE_KEY` | unset | Stripe publishable key |
+| `STRIPE_WEBHOOK_SECRET` | unset | Stripe webhook signing secret |
+| `FRONTEND_BASE_URL` | unset | Override checkout success/cancel return URL base |
 
 ## Local Development
 
-- The frontend proxies API traffic to `http://localhost:8000`
+- `frontend/npm start` now injects `REACT_APP_API_BASE=http://127.0.0.1:8000` and `REACT_APP_WS_BASE=ws://127.0.0.1:8000`
 - The frontend can auto-start the backend in development if port `8000` is not already active
 - The analytics page now reads real dwell/session data and zone-aware heatmap data from backend storage
+- Reservations support one-time Stripe Checkout payments with `Alipay` enabled
+- Monthly passes use Stripe subscription checkout with `card` billing
+
+## Payments
+
+- Reservation checkout endpoint: `POST /payments/reservations/{id}/checkout`
+- Stripe webhook endpoint: `POST /webhooks/stripe`
+- Monthly pass checkout endpoint: `POST /monthly-passes/checkout`
+- Billing portal endpoint: `POST /payments/billing-portal`
+
+Important:
+
+- Alipay is used for one-time reservation payments
+- Monthly passes use recurring card billing, not Alipay subscriptions
+
+## Additional Modules
+
+- `GET/POST /lots` and `PUT /lots/{id}` for lot management
+- `GET/POST /waitlist` plus promote/cancel actions
+- `GET/POST /incidents` with `POST /incidents/upload`
+- `GET /analytics/forecast` for projected occupancy
+- `GET/POST /integrations/tokens` and `GET /integrations/parking/summary`
 
 ## Docker
 
@@ -170,11 +222,22 @@ npm run build
 
 ### Frontend shows `Proxy error` or `ECONNREFUSED`
 
-The backend is not running on `localhost:8000`.
+The frontend now talks directly to `127.0.0.1:8000` in development, so this usually means the backend failed to start. Run:
+
+```bash
+python3 run.py
+```
+
+If you use custom ports, set:
+
+```bash
+REACT_APP_API_BASE=http://127.0.0.1:8000
+REACT_APP_WS_BASE=ws://127.0.0.1:8000
+```
 
 ### Frontend shows `Reconnecting...`
 
-The WebSocket connection is not established. Check the backend process and `REACT_APP_WS_BASE` if you override URLs.
+The WebSocket endpoint is not reachable. Check that the backend is running and that `REACT_APP_WS_BASE` matches the backend host and port.
 
 ### Analytics looks empty
 

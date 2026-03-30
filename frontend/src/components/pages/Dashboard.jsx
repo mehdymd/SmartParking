@@ -6,7 +6,7 @@ import Controls from '../Controls';
 import AnalyticsSection from '../AnalyticsSection';
 import SessionsTable from '../SessionsTable';
 
-const Dashboard = ({ feedState, setFeedState, wsStatus, wsData }) => {
+const Dashboard = ({ feedState, setFeedState, wsStatus, wsData, token, currentUser }) => {
   return (
     <div style={{
       maxWidth: '1400px',
@@ -25,6 +25,8 @@ const Dashboard = ({ feedState, setFeedState, wsStatus, wsData }) => {
           <Controls
             feedState={feedState}
             setFeedState={setFeedState}
+            token={token}
+            currentUser={currentUser}
           />
         </div>
       </div>
