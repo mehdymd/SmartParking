@@ -60,13 +60,18 @@ flowchart TD
 
 - `frontend/src/components/pages/Dashboard.jsx`: main operations view
 - `frontend/src/components/pages/AnalyticsPage.jsx`: heatmap and dwell analytics
-- `frontend/src/components/pages/LotsPage.jsx`: multi-lot management
-- `frontend/src/components/pages/WaitlistPage.jsx`: queue and promotion workflows
+- `frontend/src/components/pages/ReservationsPage.jsx`: reservation management
 - `frontend/src/components/pages/IncidentsPage.jsx`: incident reporting with image upload
 - `frontend/src/components/pages/PassesPage.jsx`: monthly pass billing
+- `frontend/src/components/pages/CashierDashboard.jsx`: cashier operations
 - `frontend/src/components/pages/RevenuePage.jsx`: revenue metrics and transactions
 - `frontend/src/components/pages/AlertsPage.jsx`: active alerts and status
+- `frontend/src/components/pages/LPRPage.jsx`: license plate recognition
 - `frontend/src/components/pages/SlotEditor.jsx`: slot, entry, and exit configuration
+- `frontend/src/components/pages/UsersPage.jsx`: user management
+- `frontend/src/components/pages/LoginPage.jsx`: admin login
+- `frontend/src/components/pages/MobilePortal.jsx`: public mobile portal
+- `frontend/src/components/pages/MobileLogin.jsx`: mobile portal login
 - `frontend/src/lib/api.js`: API and WebSocket URL resolution
 
 ## Tech Stack
