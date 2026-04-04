@@ -108,7 +108,7 @@ const Controls = ({ feedState, setFeedState, token, currentUser }) => {
       const response = await fetch(apiUrl('/parking/set-source'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: next ? '0' : null }),
+        body: JSON.stringify({ source: next ? 0 : null }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {

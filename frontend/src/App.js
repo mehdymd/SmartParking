@@ -153,14 +153,16 @@ function App() {
 
   return (
     <>
-      <Header
-        currentPage={currentPage}
-        setCurrentPage={setCurrentPage}
-        wsConnected={wsConnected}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-      />
-      {wsReconnecting && currentUser && (
+      {currentPage !== 'CashierDashboard' && (
+        <Header
+          currentPage={currentPage}
+          setCurrentPage={setCurrentPage}
+          wsConnected={wsConnected}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
+      )}
+      {currentPage !== 'CashierDashboard' && wsReconnecting && currentUser && (
         <div style={{
           position: 'fixed',
           top: '80px',
@@ -194,7 +196,7 @@ function App() {
           {activeAlert.message}
         </div>
       )}
-      <div style={{ marginTop: '80px' }}>
+      <div style={{ marginTop: currentPage === 'CashierDashboard' ? 0 : '80px' }}>
         {currentPage === 'Dashboard' && (
           <Dashboard
             feedState={feedState}

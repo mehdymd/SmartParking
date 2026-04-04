@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { apiUrl } from '../../lib/api';
+import { apiUrl, qrCodeUrl } from '../../lib/api';
 import { authFetch } from '../../lib/auth';
+import QRCodeImage from '../QRCodeImage';
 
 const styles = `
   .sp-page { padding: 24px; max-width: 1400px; margin: 0 auto; }
@@ -151,7 +152,7 @@ const SettingsPage = ({ token }) => {
   const portalUrl = typeof window !== 'undefined'
     ? (settings.access_portal_url || `${window.location.origin}${window.location.pathname}?portal=access`)
     : (settings.access_portal_url || '');
-  const portalQrUrl = portalUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(portalUrl)}` : '';
+  const portalQrUrl = qrCodeUrl(portalUrl, 320);
 
   const copyPortalUrl = async () => {
     if (!portalUrl || !navigator?.clipboard) return;
@@ -366,8 +367,9 @@ const SettingsPage = ({ token }) => {
             <div className="sp-nested" style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
               <div style={{ display: 'grid', justifyItems: 'center', gap: 10 }}>
                 {portalQrUrl ? (
-                  <img
-                    src={portalQrUrl}
+                  <QRCodeImage
+                    data={portalUrl}
+                    size={320}
                     alt="System access QR"
                     style={{ width: 200, maxWidth: '100%', aspectRatio: '1 / 1', objectFit: 'contain', borderRadius: 16, background: '#fff', padding: 12 }}
                   />
@@ -501,6 +503,7 @@ const SettingsPage = ({ token }) => {
   );
 };
 
+// eslint-disable-next-line no-unused-vars
 const looksLikeImageSource = (value) => typeof value === 'string' && /^(https?:\/\/|data:image\/|\/)/i.test(value.trim());
 
 export default SettingsPage;

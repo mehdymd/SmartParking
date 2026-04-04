@@ -1,4 +1,4 @@
-import { apiUrl } from './api';
+import { apiCandidates, apiUrl } from './api';
 
 const STORAGE_KEY = 'smartparking.auth';
 
@@ -37,13 +37,39 @@ export const authFetch = async (path, options = {}, token) => {
   if (options.body && typeof options.body === 'object') {
     fetchOptions.body = JSON.stringify(options.body);
   }
-  const response = await fetch(apiUrl(path), fetchOptions);
 
-  if (response.status === 401) {
-    const error = new Error('Unauthorized');
-    error.status = 401;
-    throw error;
+  const candidates = apiCandidates(path);
+  const fallbackCandidates = candidates.length ? candidates : [apiUrl(path)];
+  let lastResponse = null;
+  let lastError = null;
+
+  for (const candidate of fallbackCandidates) {
+    try {
+      const response = await fetch(candidate, fetchOptions);
+
+      if (response.status === 401) {
+        const error = new Error('Unauthorized');
+        error.status = 401;
+        throw error;
+      }
+
+      if (response.status === 404 && candidate !== fallbackCandidates[fallbackCandidates.length - 1]) {
+        lastResponse = response;
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (error?.status === 401) {
+        throw error;
+      }
+    }
   }
 
-  return response;
+  if (lastResponse) {
+    return lastResponse;
+  }
+
+  throw lastError || new Error('Failed to fetch');
 };

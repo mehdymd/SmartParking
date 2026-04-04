@@ -49,6 +49,7 @@ const ReservationsPage = ({ token, user }) => {
   const [search, setSearch] = useState('');
   const [paymentConfig, setPaymentConfig] = useState({ enabled: false, receiver_name: '', qr_code: '', instructions: '', provider: 'admin_qr' });
   const [activePayment, setActivePayment] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [lots, setLots] = useState([]);
   const canManage = user?.role === 'admin' || user?.role === 'operator';
   const isAdmin = user?.role === 'admin';
@@ -192,10 +193,12 @@ const ReservationsPage = ({ token, user }) => {
   }, [availability.slot_states, form.slot_id]);
 
   const slotStates = useMemo(() => availability.slot_states || [], [availability.slot_states]);
+  // eslint-disable-next-line no-unused-vars
   const selectedSlotState = useMemo(
     () => slotStates.find((slot) => slot.slot_id === form.slot_id) || null,
     [slotStates, form.slot_id]
   );
+  // eslint-disable-next-line no-unused-vars
   const alternativeSlots = useMemo(
     () => slotStates.filter((slot) => slot.state === 'available' && slot.slot_id !== form.slot_id),
     [slotStates, form.slot_id]
@@ -218,6 +221,7 @@ const ReservationsPage = ({ token, user }) => {
     loadAvailability(form.zone);
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleCreate = async (event) => {
     event.preventDefault();
     setError('');
@@ -596,6 +600,7 @@ const smallButtonStyle = {
   cursor: 'pointer',
 };
 
+// eslint-disable-next-line no-unused-vars
 const radioLabelStyle = {
   display: 'flex',
   alignItems: 'center',

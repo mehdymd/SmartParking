@@ -14,9 +14,12 @@ import uuid
 import base64
 import io
 import hashlib
+from urllib.parse import parse_qs, urlparse
 from PIL import Image
 import numpy as np
 import cv2
+from reportlab.graphics import renderSVG
+from reportlab.graphics.barcode import createBarcodeDrawing
 import sys
 sys.path.append('../ultralytics_lib')
 
@@ -55,6 +58,8 @@ try:
         verify_password,
         create_access_token,
         decode_access_token,
+        create_reservation_qr_token,
+        decode_reservation_qr_token,
         generate_confirmation_code,
         generate_otp,
         hash_otp,
@@ -96,6 +101,8 @@ except ImportError:
         verify_password,
         create_access_token,
         decode_access_token,
+        create_reservation_qr_token,
+        decode_reservation_qr_token,
         generate_confirmation_code,
         generate_otp,
         hash_otp,
@@ -240,6 +247,52 @@ def _serialize_user(user: User):
     }
 
 
+def _reservation_user_type(reservation: Reservation):
+    if reservation.notes:
+        try:
+            parsed = json.loads(reservation.notes)
+            if isinstance(parsed, dict):
+                return _effective_user_type(parsed.get("user_type"))
+        except Exception:
+            pass
+    return "visitor"
+
+
+def _reservation_amount_payload(reservation: Reservation):
+    amount = _zone_reservation_amount(
+        reservation.zone or "A",
+        reservation.start_time,
+        reservation.end_time,
+        _reservation_user_type(reservation),
+    )
+    return {
+        "amount": round(float(amount or 0), 2),
+        "currency": "USD",
+    }
+
+
+def _reservation_qr_data(reservation: Reservation):
+    token = create_reservation_qr_token(reservation.id, reservation.confirmation_code)
+    return {
+        "cashier_qr_token": token,
+        "cashier_qr_data": f"SPARKRES:{token}",
+    }
+
+
+def _qr_svg_data_uri(data: str, size: int = 160):
+    payload = (data or "").strip()
+    if not payload:
+        return ""
+
+    bounded_size = min(max(int(size or 160), 64), 1024)
+    drawing = createBarcodeDrawing("QR", value=payload, width=bounded_size, height=bounded_size)
+    svg = renderSVG.drawToString(drawing)
+    if isinstance(svg, str):
+        svg = svg.encode("utf-8")
+    encoded = base64.b64encode(svg).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
 def _serialize_reservation(reservation: Reservation):
     extra_notes = reservation.notes
     user_type = "visitor"
@@ -253,6 +306,30 @@ def _serialize_reservation(reservation: Reservation):
                 extra_notes = parsed
         except Exception:
             pass
+    amount_payload = _reservation_amount_payload(reservation)
+    qr_payload = _reservation_qr_data(reservation)
+    
+    # Calculate time spent if entry_time exists
+    time_spent_minutes = None
+    if reservation.entry_time:
+        from datetime import datetime
+        end = reservation.actual_exit_time or datetime.utcnow()
+        time_spent_minutes = int((end - reservation.entry_time).total_seconds() / 60)
+    
+    # Calculate overstay amount (double the hourly rate per minute overstayed)
+    overstay_amount = 0
+    if reservation.overstay_minutes and reservation.overstay_minutes > 0:
+        from config import Config
+        settings_data = {}
+        try:
+            with open(os.path.join(os.path.dirname(__file__), "settings.json"), "r") as f:
+                settings_data = json.load(f) or {}
+        except Exception:
+            pass
+        zone_pricing = settings_data.get("zone_pricing") or {"A": 2, "B": 1, "C": 4}
+        hourly_rate = zone_pricing.get(reservation.zone or "A", 2)
+        overstay_amount = round(hourly_rate * 2 * (reservation.overstay_minutes / 60), 2)
+    
     return {
         "id": reservation.id,
         "confirmation_code": reservation.confirmation_code,
@@ -265,6 +342,11 @@ def _serialize_reservation(reservation: Reservation):
         "license_plate": reservation.license_plate,
         "start_time": reservation.start_time.isoformat() + "Z" if reservation.start_time else None,
         "end_time": reservation.end_time.isoformat() + "Z" if reservation.end_time else None,
+        "entry_time": reservation.entry_time.isoformat() + "Z" if reservation.entry_time else None,
+        "actual_exit_time": reservation.actual_exit_time.isoformat() + "Z" if reservation.actual_exit_time else None,
+        "overstay_minutes": reservation.overstay_minutes or 0,
+        "overstay_amount": overstay_amount,
+        "time_spent_minutes": time_spent_minutes,
         "status": reservation.status,
         "payment_status": reservation.payment_status,
         "payment_method": reservation.payment_method,
@@ -274,7 +356,14 @@ def _serialize_reservation(reservation: Reservation):
         "created_by_user_id": reservation.created_by_user_id,
         "created_at": reservation.created_at.isoformat() + "Z" if reservation.created_at else None,
         "metadata": extra_notes if isinstance(extra_notes, dict) else None,
-        "qr_data": f"PARKING:{reservation.confirmation_code}|{reservation.license_plate or ''}|{reservation.zone or ''}|{reservation.slot_id or ''}",
+        "estimated_amount": amount_payload["amount"],
+        "currency": amount_payload["currency"],
+        "qr_data": qr_payload["cashier_qr_data"],
+        "qr_image": _qr_svg_data_uri(qr_payload["cashier_qr_data"], 180),
+        "cashier_qr_data": qr_payload["cashier_qr_data"],
+        "cashier_qr_token": qr_payload["cashier_qr_token"],
+        "cashier_qr_image": _qr_svg_data_uri(qr_payload["cashier_qr_data"], 180),
+        "legacy_qr_data": f"PARKING:{reservation.confirmation_code}|{reservation.license_plate or ''}|{reservation.zone or ''}|{reservation.slot_id or ''}",
     }
 
 
@@ -495,6 +584,86 @@ def _resolve_public_reservation(
     if not candidates:
         return None
     return sorted(candidates, key=_reservation_lookup_rank)[0]
+
+
+def _extract_reservation_scan_token(value: str = ""):
+    raw = (value or "").strip()
+    if not raw:
+        return None
+
+    if raw.upper().startswith("SPARKRES:"):
+        return raw.split(":", 1)[1].strip()
+
+    if raw.upper().startswith("PARKING:"):
+        legacy_parts = raw.split(":", 1)[1].split("|")
+        if legacy_parts:
+            return f"LEGACY_CODE:{legacy_parts[0].strip().upper()}"
+
+    if raw.startswith("http://") or raw.startswith("https://"):
+        try:
+            parsed = urlparse(raw)
+            query = parse_qs(parsed.query)
+            token = (query.get("reservation_token") or [None])[0]
+            if token:
+                return token.strip()
+        except Exception:
+            return None
+
+    if raw.startswith("reservation_qr."):
+        return raw
+    return None
+
+
+def _resolve_cashier_reservation(
+    db: Session,
+    query: str = None,
+    license_plate: str = None,
+):
+    token = _extract_reservation_scan_token(query)
+    if token:
+        if token.startswith("LEGACY_CODE:"):
+            return _resolve_public_reservation(
+                db,
+                confirmation_code=token.split(":", 1)[1],
+                license_plate=license_plate,
+            )
+        payload = decode_reservation_qr_token(token)
+        if not payload:
+            raise HTTPException(status_code=400, detail="Invalid reservation QR")
+
+        reservation_id = int(payload.get("reservation_id") or 0)
+        confirmation_code = str(payload.get("confirmation_code") or "").strip().upper()
+        reservation = (
+            db.query(Reservation)
+            .filter(
+                Reservation.id == reservation_id,
+                Reservation.confirmation_code == confirmation_code,
+            )
+            .first()
+        )
+        if not reservation:
+            raise HTTPException(status_code=404, detail="Reservation not found")
+        _expire_stale_reservations(db)
+        db.refresh(reservation)
+        return reservation
+
+    return _resolve_public_reservation(
+        db,
+        confirmation_code=query,
+        license_plate=license_plate,
+    )
+
+
+def _latest_reservation_payment(db: Session, reservation_id: int):
+    return (
+        db.query(PaymentRecord)
+        .filter(
+            PaymentRecord.reservation_id == reservation_id,
+            PaymentRecord.payment_type == "reservation",
+        )
+        .order_by(PaymentRecord.created_at.desc(), PaymentRecord.id.desc())
+        .first()
+    )
 
 
 def _cancel_reservation_record(db: Session, reservation: Reservation):
@@ -861,6 +1030,71 @@ def _payment_record_payload(record: PaymentRecord):
         "stripe_payment_intent_id": record.stripe_payment_intent_id,
         "stripe_invoice_id": record.stripe_invoice_id,
         "paid_at": record.paid_at.isoformat() + "Z" if record.paid_at else None,
+        "metadata": metadata,
+    }
+
+
+def _cash_payment_payload(payment: CashPayment, reservation: Reservation = None, cashier: User = None):
+    linked_reservation = reservation
+    linked_cashier = cashier
+    return {
+        "id": payment.id,
+        "reservation_id": payment.reservation_id,
+        "confirmation_code": linked_reservation.confirmation_code if linked_reservation else None,
+        "full_name": linked_reservation.full_name if linked_reservation else None,
+        "phone": linked_reservation.phone if linked_reservation else None,
+        "license_plate": linked_reservation.license_plate if linked_reservation else None,
+        "slot_id": linked_reservation.slot_id if linked_reservation else None,
+        "zone": linked_reservation.zone if linked_reservation else None,
+        "reservation_status": linked_reservation.status if linked_reservation else None,
+        "payment_status": linked_reservation.payment_status if linked_reservation else None,
+        "reservation_end_time": linked_reservation.end_time.isoformat() + "Z" if linked_reservation and linked_reservation.end_time else None,
+        "amount": float(payment.amount or 0),
+        "currency": payment.currency,
+        "received_by": payment.received_by,
+        "received_by_name": linked_cashier.full_name if linked_cashier and linked_cashier.full_name else (linked_cashier.username if linked_cashier else None),
+        "status": payment.status,
+        "notes": payment.notes,
+        "created_at": payment.created_at.isoformat() + "Z" if payment.created_at else None,
+        "reservation": _serialize_reservation(linked_reservation) if linked_reservation else None,
+    }
+
+
+def _cashier_payment_record_payload(record: PaymentRecord, reservation: Reservation = None, cashier: User = None):
+    metadata = {}
+    if record.metadata_json:
+        try:
+            metadata = json.loads(record.metadata_json) or {}
+        except Exception:
+            metadata = {}
+
+    linked_reservation = reservation
+    linked_cashier = cashier
+    payment_method = (record.payment_method or metadata.get("payment_method") or "cash").lower()
+    return {
+        "id": record.id,
+        "reservation_id": record.reservation_id,
+        "confirmation_code": linked_reservation.confirmation_code if linked_reservation else metadata.get("confirmation_code"),
+        "full_name": linked_reservation.full_name if linked_reservation else metadata.get("full_name"),
+        "phone": linked_reservation.phone if linked_reservation else metadata.get("phone"),
+        "license_plate": linked_reservation.license_plate if linked_reservation else metadata.get("license_plate"),
+        "slot_id": linked_reservation.slot_id if linked_reservation else metadata.get("slot_id"),
+        "zone": linked_reservation.zone if linked_reservation else metadata.get("zone"),
+        "reservation_status": linked_reservation.status if linked_reservation else metadata.get("reservation_status"),
+        "payment_status": linked_reservation.payment_status if linked_reservation else record.status,
+        "amount": float(record.amount or 0),
+        "currency": record.currency,
+        "payment_method": payment_method,
+        "payment_provider": record.payment_provider,
+        "received_by": linked_cashier.id if linked_cashier else record.user_id,
+        "received_by_name": linked_cashier.full_name if linked_cashier and linked_cashier.full_name else (linked_cashier.username if linked_cashier else None),
+        "status": record.status,
+        "notes": metadata.get("notes"),
+        "amount_received": metadata.get("amount_received"),
+        "change_due": metadata.get("change_due"),
+        "created_at": record.created_at.isoformat() + "Z" if record.created_at else None,
+        "paid_at": record.paid_at.isoformat() + "Z" if record.paid_at else None,
+        "reservation": _serialize_reservation(linked_reservation) if linked_reservation else None,
         "metadata": metadata,
     }
 
@@ -1918,7 +2152,10 @@ def public_reservation_create(
     db: Session = Depends(get_db),
     authorization: str = Header(None),
 ):
-    from security import get_current_active_user_optional
+    try:
+        from .security import get_current_active_user_optional
+    except ImportError:
+        from security import get_current_active_user_optional
     current_user = get_current_active_user_optional(authorization, db)
     creator_user_id = current_user.id if current_user else None
     result = _create_reservation_record(data, db, creator_user_id=creator_user_id)
@@ -1944,6 +2181,7 @@ def public_reservation_lookup(
 ):
     if not (confirmation_code or license_plate):
         raise HTTPException(status_code=400, detail="Confirmation code or license plate is required")
+    _expire_stale_reservations(db)
     reservation = _resolve_public_reservation(
         db,
         confirmation_code=confirmation_code,
@@ -1963,6 +2201,34 @@ def public_reservation_lookup(
     }
 
 
+@app.get("/cashier/reservations/lookup")
+def cashier_reservation_lookup(
+    query: str = None,
+    license_plate: str = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_roles("admin", "cashier")),
+):
+    if not (query or license_plate):
+        raise HTTPException(status_code=400, detail="Reservation query or license plate is required")
+
+    reservation = _resolve_cashier_reservation(
+        db,
+        query=query,
+        license_plate=license_plate,
+    )
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    payment_record = _latest_reservation_payment(db, reservation.id)
+    amount_payload = _reservation_amount_payload(reservation)
+    return {
+        "reservation": _serialize_reservation(reservation),
+        "payment": _payment_record_payload(payment_record) if payment_record else None,
+        "amount_due": amount_payload["amount"],
+        "currency": amount_payload["currency"],
+    }
+
+
 @app.get("/public/reservations/by-phone")
 def public_reservations_by_phone(
     phone: str = None,
@@ -1970,6 +2236,7 @@ def public_reservations_by_phone(
 ):
     if not phone:
         return {"reservations": []}
+    _expire_stale_reservations(db)
     reservations = db.query(Reservation).filter(
         Reservation.phone == phone
     ).order_by(Reservation.created_at.desc()).limit(20).all()
@@ -1983,7 +2250,7 @@ def public_reservations_by_license(
 ):
     if not license_plate:
         return {"reservations": [], "active_session": None}
-    
+    _expire_stale_reservations(db)
     reservations = db.query(Reservation).filter(
         Reservation.license_plate.ilike(license_plate)
     ).order_by(Reservation.created_at.desc()).limit(20).all()
@@ -2033,10 +2300,14 @@ def public_my_reservations(
     db: Session = Depends(get_db),
     authorization: str = Header(None),
 ):
-    from security import get_current_active_user_optional
+    try:
+        from .security import get_current_active_user_optional
+    except ImportError:
+        from security import get_current_active_user_optional
     current_user = get_current_active_user_optional(authorization, db)
     if not current_user:
         return {"reservations": [], "active_session": None}
+    _expire_stale_reservations(db)
     reservations = db.query(Reservation).filter(
         Reservation.created_by_user_id == current_user.id
     ).order_by(Reservation.created_at.desc()).limit(20).all()
@@ -2264,9 +2535,11 @@ def public_incident_list(
     reporter: str = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(IncidentReport).filter(IncidentReport.reported_by_user_id == None)
+    query = db.query(IncidentReport)
     if reporter:
         query = query.filter(IncidentReport.reporter_name == reporter)
+    else:
+        query = query.filter(IncidentReport.reporter_name == None)
     incidents = query.order_by(IncidentReport.created_at.desc()).all()
     return {"incidents": [_serialize_incident(item) for item in incidents]}
 
@@ -2509,6 +2782,166 @@ def payments_mark_paid(
     }
 
 
+@app.put("/cashier/reservations/{reservation_id}/payment-status")
+def cashier_update_reservation_payment_status(
+    reservation_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_roles("admin", "cashier")),
+):
+    payment_status = str(data.get("payment_status") or "").strip().lower()
+    if payment_status not in {"paid", "pending"}:
+        raise HTTPException(status_code=400, detail="Payment status must be paid or pending")
+    payment_method = str(data.get("payment_method") or "cash").strip().lower()
+    if payment_method not in {"cash", "card", "mobile"}:
+        payment_method = "cash"
+    notes = (data.get("notes") or "").strip() or None
+    amount_received = data.get("amount_received")
+    try:
+        amount_received_value = float(amount_received) if amount_received not in (None, "") else None
+    except Exception:
+        amount_received_value = None
+
+    reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    if reservation.status in {"cancelled", "expired"}:
+        raise HTTPException(status_code=400, detail="This reservation cannot be updated")
+
+    amount_payload = _reservation_amount_payload(reservation)
+    payment_record = _latest_reservation_payment(db, reservation.id)
+    latest_cash_payment = (
+        db.query(CashPayment)
+        .filter(CashPayment.reservation_id == reservation.id)
+        .order_by(CashPayment.created_at.desc(), CashPayment.id.desc())
+        .first()
+    )
+
+    payment_provider = {
+        "cash": "cashier_cash",
+        "card": "cashier_card",
+        "mobile": "cashier_mobile",
+    }.get(payment_method, "cashier_cash")
+    change_due = None
+    if amount_received_value is not None:
+        change_due = round(max(0, amount_received_value - float(amount_payload["amount"] or 0)), 2)
+
+    if payment_status == "paid":
+        reservation.payment_method = payment_method
+        reservation.payment_provider = payment_provider
+
+    if payment_record is None:
+        payment_record = PaymentRecord(
+            user_id=user.id,
+            reservation_id=reservation.id,
+            amount=amount_payload["amount"],
+            currency=str(amount_payload["currency"] or "USD").lower(),
+            payment_type="reservation",
+            payment_method=payment_method if payment_status == "paid" else (reservation.payment_method or payment_method),
+            payment_provider=payment_provider if payment_status == "paid" else (reservation.payment_provider or payment_provider),
+            status=payment_status,
+            paid_at=datetime.utcnow() if payment_status == "paid" else None,
+            metadata_json=json.dumps({
+                "confirmation_code": reservation.confirmation_code,
+                "full_name": reservation.full_name,
+                "phone": reservation.phone,
+                "license_plate": reservation.license_plate,
+                "slot_id": reservation.slot_id,
+                "zone": reservation.zone,
+                "payment_method": payment_method,
+                "notes": notes,
+                "amount_received": amount_received_value,
+                "change_due": change_due,
+                "updated_by_user_id": user.id,
+                "updated_from": "cashier_dashboard",
+            }),
+        )
+        db.add(payment_record)
+    else:
+        payment_record.user_id = user.id
+        payment_record.amount = amount_payload["amount"]
+        payment_record.currency = str(amount_payload["currency"] or payment_record.currency or "USD").lower()
+        payment_record.payment_method = payment_method if payment_status == "paid" else (payment_record.payment_method or reservation.payment_method or payment_method)
+        payment_record.payment_provider = payment_provider if payment_status == "paid" else (payment_record.payment_provider or reservation.payment_provider or payment_provider)
+        payment_record.status = payment_status
+        payment_record.paid_at = datetime.utcnow() if payment_status == "paid" else None
+        metadata = {}
+        if payment_record.metadata_json:
+            try:
+                metadata = json.loads(payment_record.metadata_json) or {}
+            except Exception:
+                metadata = {}
+        metadata.update({
+            "confirmation_code": reservation.confirmation_code,
+            "full_name": reservation.full_name,
+            "phone": reservation.phone,
+            "license_plate": reservation.license_plate,
+            "slot_id": reservation.slot_id,
+            "zone": reservation.zone,
+            "payment_method": payment_method,
+            "notes": notes,
+            "amount_received": amount_received_value,
+            "change_due": change_due,
+            "updated_by_user_id": user.id,
+            "updated_from": "cashier_dashboard",
+        })
+        payment_record.metadata_json = json.dumps(metadata)
+
+    reservation.payment_status = payment_status
+    if payment_status == "paid":
+        reservation.payment_method = payment_method
+        reservation.payment_provider = payment_provider
+        if payment_method == "cash":
+            if latest_cash_payment is None:
+                latest_cash_payment = CashPayment(
+                    reservation_id=reservation.id,
+                    amount=amount_payload["amount"],
+                    currency=amount_payload["currency"],
+                    received_by=user.id,
+                    status="completed",
+                    notes=notes or "Marked paid from cashier dashboard",
+                )
+                db.add(latest_cash_payment)
+            else:
+                latest_cash_payment.amount = amount_payload["amount"]
+                latest_cash_payment.currency = amount_payload["currency"]
+                latest_cash_payment.received_by = user.id
+                latest_cash_payment.status = "completed"
+                latest_cash_payment.notes = notes or latest_cash_payment.notes or "Marked paid from cashier dashboard"
+        elif latest_cash_payment and latest_cash_payment.status == "completed":
+            latest_cash_payment.status = "voided"
+    else:
+        (
+            db.query(CashPayment)
+            .filter(
+                CashPayment.reservation_id == reservation.id,
+                CashPayment.status == "completed",
+            )
+            .update({"status": "voided"}, synchronize_session=False)
+        )
+
+    db.commit()
+    db.refresh(reservation)
+    db.refresh(payment_record)
+    latest_cash_payment = (
+        db.query(CashPayment)
+        .filter(CashPayment.reservation_id == reservation.id)
+        .order_by(CashPayment.created_at.desc(), CashPayment.id.desc())
+        .first()
+    )
+
+    return {
+        "reservation": _serialize_reservation(reservation),
+        "payment": _payment_record_payload(payment_record),
+        "cash_payment": _cash_payment_payload(latest_cash_payment, reservation, user) if latest_cash_payment else None,
+        "amount_due": amount_payload["amount"],
+        "currency": amount_payload["currency"],
+        "payment_method": payment_method,
+        "change_due": change_due,
+    }
+
+
 @app.post("/cash-payments")
 def cash_payment_create(
     data: dict,
@@ -2552,7 +2985,14 @@ def cash_payment_create(
         payment_provider="cashier",
         status="paid",
         paid_at=datetime.utcnow(),
-        notes=notes,
+        metadata_json=json.dumps({
+            "notes": notes,
+            "confirmation_code": reservation.confirmation_code,
+            "slot_id": reservation.slot_id,
+            "zone": reservation.zone,
+            "updated_by_user_id": user.id,
+            "updated_from": "cash_payment_create",
+        }),
     )
     db.add(payment_record)
     db.commit()
@@ -2560,15 +3000,7 @@ def cash_payment_create(
     db.refresh(reservation)
 
     return {
-        "cash_payment": {
-            "id": cash_payment.id,
-            "amount": cash_payment.amount,
-            "currency": cash_payment.currency,
-            "received_by": cash_payment.received_by,
-            "status": cash_payment.status,
-            "notes": cash_payment.notes,
-            "created_at": cash_payment.created_at.isoformat() + "Z" if cash_payment.created_at else None,
-        },
+        "cash_payment": _cash_payment_payload(cash_payment, reservation, user),
         "reservation": _serialize_reservation(reservation),
     }
 
@@ -2578,23 +3010,99 @@ def cash_payment_list(
     db: Session = Depends(get_db),
     user: User = Depends(_require_roles("admin", "cashier")),
 ):
-    query = db.query(CashPayment).order_by(CashPayment.created_at.desc(), CashPayment.id.desc())
+    query = db.query(CashPayment).filter(CashPayment.status == "completed").order_by(CashPayment.created_at.desc(), CashPayment.id.desc())
     if user.role == "cashier":
         query = query.filter(CashPayment.received_by == user.id)
     payments = query.all()
+    reservation_ids = {payment.reservation_id for payment in payments if payment.reservation_id}
+    cashier_ids = {payment.received_by for payment in payments if payment.received_by}
+    reservations = (
+        db.query(Reservation)
+        .filter(Reservation.id.in_(reservation_ids))
+        .all()
+        if reservation_ids
+        else []
+    )
+    cashiers = (
+        db.query(User)
+        .filter(User.id.in_(cashier_ids))
+        .all()
+        if cashier_ids
+        else []
+    )
+    reservation_map = {reservation.id: reservation for reservation in reservations}
+    cashier_map = {cashier.id: cashier for cashier in cashiers}
     return {
         "cash_payments": [
-            {
-                "id": p.id,
-                "reservation_id": p.reservation_id,
-                "amount": p.amount,
-                "currency": p.currency,
-                "received_by": p.received_by,
-                "status": p.status,
-                "notes": p.notes,
-                "created_at": p.created_at.isoformat() + "Z" if p.created_at else None,
-            }
+            _cash_payment_payload(
+                p,
+                reservation_map.get(p.reservation_id),
+                cashier_map.get(p.received_by),
+            )
             for p in payments
+        ]
+    }
+
+
+@app.get("/cashier/payments")
+def cashier_payment_list(
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_roles("admin", "cashier")),
+):
+    records = (
+        db.query(PaymentRecord)
+        .filter(
+            PaymentRecord.payment_type == "reservation",
+            PaymentRecord.payment_provider.isnot(None),
+        )
+        .order_by(PaymentRecord.paid_at.desc(), PaymentRecord.created_at.desc(), PaymentRecord.id.desc())
+        .limit(300)
+        .all()
+    )
+
+    filtered_records = []
+    for record in records:
+        provider = str(record.payment_provider or "").lower()
+        metadata = {}
+        if record.metadata_json:
+            try:
+                metadata = json.loads(record.metadata_json) or {}
+            except Exception:
+                metadata = {}
+        updated_from = str(metadata.get("updated_from") or "").lower()
+        if not (provider.startswith("cashier") or updated_from.startswith("cashier_") or updated_from == "cashier_dashboard"):
+            continue
+        if user.role == "cashier" and record.user_id != user.id:
+            continue
+        filtered_records.append((record, metadata))
+
+    reservation_ids = {record.reservation_id for record, _ in filtered_records if record.reservation_id}
+    cashier_ids = {record.user_id for record, _ in filtered_records if record.user_id}
+    reservations = (
+        db.query(Reservation)
+        .filter(Reservation.id.in_(reservation_ids))
+        .all()
+        if reservation_ids
+        else []
+    )
+    cashiers = (
+        db.query(User)
+        .filter(User.id.in_(cashier_ids))
+        .all()
+        if cashier_ids
+        else []
+    )
+    reservation_map = {reservation.id: reservation for reservation in reservations}
+    cashier_map = {cashier.id: cashier for cashier in cashiers}
+
+    return {
+        "payments": [
+            _cashier_payment_record_payload(
+                record,
+                reservation_map.get(record.reservation_id),
+                cashier_map.get(record.user_id),
+            )
+            for record, _ in filtered_records
         ]
     }
 
@@ -3477,6 +3985,20 @@ def public_access_portal(db: Session = Depends(get_db)):
             for session in recent_sessions
         ],
     }
+
+
+@app.get("/public/qr-code")
+def public_qr_code(data: str, size: int = 240):
+    payload = (data or "").strip()
+    if not payload:
+        raise HTTPException(status_code=400, detail="QR data is required")
+
+    bounded_size = min(max(int(size or 240), 64), 1024)
+    drawing = createBarcodeDrawing("QR", value=payload, width=bounded_size, height=bounded_size)
+    svg = renderSVG.drawToString(drawing)
+    if isinstance(svg, str):
+        svg = svg.encode("utf-8")
+    return Response(content=svg, media_type="image/svg+xml")
 
 @app.post("/parking/set-source")
 async def set_source(data: dict):

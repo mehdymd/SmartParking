@@ -1,4 +1,12 @@
 {
+  "camera_sources": [
+    {
+      "id": "cam-0",
+      "name": "Main Camera",
+      "source": "0",
+      "mode": "webcam"
+    }
+  ],
   "lpr_enabled": true,
   "lpr_confidence_threshold": 0.5,
   "lpr_region_hint": "",

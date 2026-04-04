@@ -6,11 +6,12 @@ const wsProtocolFor = (protocol = 'http:') => (protocol === 'https:' || protocol
 const apiBase = trimTrailingSlash(process.env.REACT_APP_API_BASE || '');
 const wsBase = trimTrailingSlash(process.env.REACT_APP_WS_BASE || '');
 const isDevelopment = process.env.NODE_ENV === 'development';
-const browserHost = '10.29.14.52';
-const devApiBase = `http://${browserHost}:8000`;
-const devWsBase = `ws://${browserHost}:8000`;
+const browserHost = 'localhost';
+const devApiBase = `http://${browserHost}:8001`;
+const devWsBase = `ws://${browserHost}:8001`;
 
 const normalizePath = (path = '') => (path.startsWith('/') ? path : `/${path}`);
+const unique = (items = []) => Array.from(new Set(items.filter(Boolean)));
 
 const resolveBase = (base = '') => {
   if (!base) return '';
@@ -51,6 +52,79 @@ export const apiUrl = (path = '') => {
     return `${devApiBase}${normalizedPath}`;
   }
   return normalizedPath;
+};
+
+export const apiCandidates = (path = '') => {
+  const normalizedPath = normalizePath(path);
+  const candidates = [];
+
+  const addBase = (base = '') => {
+    const resolved = resolveBase(base);
+    if (!resolved) return;
+    candidates.push(`${resolved}${normalizedPath}`);
+  };
+
+  if (apiBase) {
+    addBase(apiBase);
+  }
+
+  if (isDevelopment) {
+    addBase(devApiBase);
+    addBase('http://127.0.0.1:8000');
+    addBase('http://localhost:8000');
+    addBase('http://127.0.0.1:8001');
+    addBase('http://localhost:8001');
+  }
+
+  if (hasWindow) {
+    const current = new URL(window.location.origin);
+    candidates.push(`${trimTrailingSlash(current.toString())}${normalizedPath}`);
+
+    const hostVariants = unique([
+      current.hostname,
+      '127.0.0.1',
+      'localhost',
+      current.hostname === 'localhost' ? '127.0.0.1' : null,
+      current.hostname === '127.0.0.1' ? 'localhost' : null,
+    ]);
+    const portVariants = unique([current.port, '8000', '8001']);
+
+    hostVariants.forEach((hostname) => {
+      portVariants.forEach((port) => {
+        if (!hostname || !port) return;
+        candidates.push(`${current.protocol}//${hostname}:${port}${normalizedPath}`);
+      });
+    });
+  }
+
+  candidates.push(normalizedPath);
+  return unique(candidates);
+};
+
+export const qrCodeUrl = (data = '', size = 240) => {
+  const payload = typeof data === 'string' ? data.trim() : String(data || '').trim();
+  if (!payload) {
+    return '';
+  }
+
+  const params = new URLSearchParams({
+    data: payload,
+    size: String(size || 240),
+  });
+  return apiUrl(`/public/qr-code?${params.toString()}`);
+};
+
+export const qrCodeCandidates = (data = '', size = 240) => {
+  const payload = typeof data === 'string' ? data.trim() : String(data || '').trim();
+  if (!payload) {
+    return [];
+  }
+
+  const params = new URLSearchParams({
+    data: payload,
+    size: String(size || 240),
+  });
+  return apiCandidates(`/public/qr-code?${params.toString()}`);
 };
 
 export const wsCandidates = (path = '') => {

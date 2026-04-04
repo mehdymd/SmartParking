@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { apiUrl } from '../../lib/api';
 import { authFetch } from '../../lib/auth';
-import { Users, Plus, Trash2, Edit2, Shield, DollarSign, User, AlertTriangle } from 'lucide-react';
+import { Users, Plus, Trash2, DollarSign, AlertTriangle } from 'lucide-react';
 
 const UsersPage = ({ currentUser }) => {
   const [users, setUsers] = useState([]);
@@ -28,6 +27,7 @@ const UsersPage = ({ currentUser }) => {
   });
 
   const isAdmin = currentUser?.role === 'admin';
+  // eslint-disable-next-line no-unused-vars
   const isCashier = currentUser?.role === 'cashier';
   const canManageUsers = isAdmin;
 

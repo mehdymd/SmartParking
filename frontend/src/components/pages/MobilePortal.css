@@ -38,20 +38,29 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--mobile-card);
-  border-bottom: 1px solid var(--mobile-border);
-  padding: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 250, 251, 0.92)),
+    var(--mobile-card);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 14px 16px 15px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
 }
 
 .mobile-header > div {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.mobile-header-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid !important;
+  gap: 3px;
 }
 
 .mobile-logout-btn {
@@ -84,30 +93,37 @@
 }
 
 .mobile-back-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: var(--mobile-background);
-  font-size: 18px;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  color: #1e293b;
+  font-size: 20px;
+  font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
 .mobile-title {
   font-family: 'Poppins', sans-serif;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--mobile-text);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: #0f172a;
   margin: 0;
 }
 
 .mobile-subtitle {
   font-size: 12px;
-  color: var(--mobile-text-secondary);
-  margin: 2px 0 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #475569;
+  margin: 0;
 }
 
 .mobile-content {
@@ -701,6 +717,53 @@
   color: #065f46;
 }
 
+.mobile-reservation-qr-card {
+  margin-top: 14px;
+  padding: 18px 16px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 217, 217, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 250, 0.98)),
+    linear-gradient(135deg, rgba(0, 217, 217, 0.1), rgba(31, 58, 95, 0.08));
+  text-align: center;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.1);
+}
+
+.mobile-reservation-qr-card-result {
+  margin-top: 14px;
+}
+
+.mobile-reservation-qr-label {
+  margin-bottom: 6px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.45;
+}
+
+.mobile-reservation-qr-image {
+  display: block;
+  margin: 0 auto;
+  border-radius: 18px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.mobile-reservation-qr-code {
+  margin-top: 12px;
+  color: #0891b2;
+  font-family: 'Poppins', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
 .mobile-search-section {
   margin-bottom: 24px;
 }
@@ -775,6 +838,21 @@
 .mobile-vehicle-status.pending {
   background: rgba(245, 158, 11, 0.1);
   color: #92400e;
+}
+
+.mobile-vehicle-status.confirmed {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0c4a6e;
+}
+
+.mobile-vehicle-status.expired {
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+}
+
+.mobile-vehicle-status.cancelled {
+  background: rgba(239, 68, 68, 0.12);
+  color: #991b1b;
 }
 
 .mobile-vehicle-details {
@@ -971,6 +1049,38 @@
 .mobile-incident-status.resolved {
   background: rgba(16, 185, 129, 0.15);
   color: #22c55e;
+}
+
+.mobile-booking-details {
+  display: grid;
+  gap: 10px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.mobile-booking-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.mobile-booking-details span {
+  color: #475569;
+  font-weight: 600;
+}
+
+.mobile-booking-details strong {
+  color: #0f172a;
+  font-weight: 700;
+  text-align: right;
+}
+
+.mobile-booking-details strong.expired {
+  color: #64748b;
 }
 
 .mobile-incident-desc {

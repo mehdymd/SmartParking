@@ -3,7 +3,7 @@ import { apiUrl } from '../../lib/api';
 
 const LoginPage = ({ onLogin }) => {
   const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [password, setPassword] = useState('test123');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -78,11 +78,6 @@ const LoginPage = ({ onLogin }) => {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-
-        <div style={{ marginTop: '18px', padding: '14px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
-          Default bootstrap account on a fresh database: <strong>admin</strong> / <strong>admin123</strong>.
-          Change it after first login.
-        </div>
       </div>
     </div>
   );

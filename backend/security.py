@@ -29,6 +29,12 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
+    if not stored_hash:
+        return False
+    
+    if ":" not in stored_hash:
+        return password == stored_hash
+    
     try:
         salt_hex, digest_hex = stored_hash.split(":", 1)
         salt = bytes.fromhex(salt_hex)
@@ -64,6 +70,53 @@ def decode_access_token(token: str):
         if exp < int(datetime.utcnow().timestamp()):
             return None
         return payload
+    except Exception:
+        return None
+
+
+def create_reservation_qr_token(reservation_id: int, confirmation_code: str) -> str:
+    reservation_id = int(reservation_id)
+    confirmation_code = (confirmation_code or "").strip().upper()
+    payload = f"{reservation_id}:{confirmation_code}"
+    signature = hmac.new(_secret_key(), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:12].upper()
+    return f"{reservation_id}:{confirmation_code}:{signature}"
+
+
+def decode_reservation_qr_token(token: str):
+    try:
+        raw = (token or "").strip()
+        if not raw:
+            return None
+
+        if raw.startswith("reservation_qr."):
+            token_type, encoded_payload, encoded_signature = raw.split(".", 2)
+            if token_type != "reservation_qr":
+                return None
+
+            signed_value = f"{token_type}.{encoded_payload}"
+            expected_signature = hmac.new(_secret_key(), signed_value.encode("ascii"), hashlib.sha256).digest()
+            actual_signature = _b64url_decode(encoded_signature)
+            if not hmac.compare_digest(actual_signature, expected_signature):
+                return None
+
+            payload = json.loads(_b64url_decode(encoded_payload).decode("utf-8"))
+            if payload.get("type") != "reservation_qr":
+                return None
+            return payload
+
+        reservation_id, confirmation_code, signature = raw.split(":", 2)
+        reservation_id = int(reservation_id)
+        confirmation_code = confirmation_code.strip().upper()
+        signature = signature.strip().upper()
+        payload = f"{reservation_id}:{confirmation_code}"
+        expected_signature = hmac.new(_secret_key(), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:12].upper()
+        if not hmac.compare_digest(signature, expected_signature):
+            return None
+        return {
+            "type": "reservation_qr",
+            "reservation_id": reservation_id,
+            "confirmation_code": confirmation_code,
+        }
     except Exception:
         return None
 

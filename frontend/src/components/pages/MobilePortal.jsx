@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiUrl } from '../../lib/api';
-import { Car, Search, Calendar, AlertTriangle, Plus, MapPin, Ticket, Home, CreditCard, X, Image, User, Clock, CheckCircle, MapPinned } from 'lucide-react';
+import { Car, Search, Calendar, AlertTriangle, Plus, MapPin, Home, CreditCard, X, Image } from 'lucide-react';
+import QRCodeImage from '../QRCodeImage';
 import './MobilePortal.css';
 
 const defaultData = {
@@ -70,8 +71,16 @@ const formatMoney = (amount) => {
   return numeric % 1 === 0 ? String(numeric) : numeric.toFixed(2);
 };
 
-const generateQRCode = (data, size = 120) => {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
+const looksLikeImageSource = (value) => typeof value === 'string' && /^(https?:\/\/|data:image\/|\/)/i.test(value.trim());
+
+const reservationQrValue = (reservation) => {
+  if (!reservation) return '';
+  if (reservation.legacy_qr_data) return reservation.legacy_qr_data;
+  if (reservation.qr_data && reservation.qr_data.startsWith('PARKING:')) return reservation.qr_data;
+  if (reservation.confirmation_code) {
+    return `PARKING:${reservation.confirmation_code}|${reservation.license_plate || ''}|${reservation.zone || ''}|${reservation.slot_id || ''}`;
+  }
+  return reservation.cashier_qr_data || reservation.qr_data || '';
 };
 
 const formatDateTime = (value) => {
@@ -86,6 +95,29 @@ const formatDateTime = (value) => {
   } catch {
     return 'N/A';
   }
+};
+
+const isReservationInUse = (reservation) => ['in_use', 'checked_in', 'active'].includes(String(reservation?.status || '').toLowerCase());
+
+const lookupStatusTone = (reservation) => {
+  const status = String(reservation?.status || '').toLowerCase();
+  if (status === 'expired') return 'expired';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'confirmed') return 'confirmed';
+  if (isReservationInUse(reservation)) return 'paid';
+  if (String(reservation?.payment_status || '').toLowerCase() === 'paid') return 'paid';
+  return 'pending';
+};
+
+const lookupStatusLabel = (reservation) => {
+  const status = String(reservation?.status || '').toLowerCase();
+  if (status === 'expired') return 'Expired';
+  if (status === 'cancelled') return 'Cancelled';
+  if (status === 'confirmed') return 'Confirmed';
+  if (status === 'completed') return 'Completed';
+  if (isReservationInUse(reservation)) return 'In Use';
+  if (String(reservation?.payment_status || '').toLowerCase() === 'paid') return 'Paid';
+  return 'Pending';
 };
 
 const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) => {
@@ -187,8 +219,11 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
   const loadIncidents = async () => {
     try {
       const phone = user?.phone || '';
-      const query = phone ? `?reporter=${encodeURIComponent(phone)}` : '';
-      const response = await fetch(apiUrl(`/public/incidents${query}`));
+      if (!phone) {
+        setIncidents([]);
+        return;
+      }
+      const response = await fetch(apiUrl(`/public/incidents?reporter=${encodeURIComponent(phone)}`));
       const payload = await response.json();
       if (response.ok) {
         setIncidents(payload.incidents || []);
@@ -248,7 +283,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
     return zoneRates.map(rate => {
       const zoneSlots = slotStates.filter(s => s.zone === rate.zone);
       const available = zoneSlots.filter(s => s.state === 'available').length;
-      const total = zoneSlots.length || 20;
+      const total = zoneSlots.length;
       return {
         ...rate,
         available,
@@ -256,7 +291,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
         occupancyPercent: total > 0 ? Math.round(((total - available) / total) * 100) : 0,
       };
     });
-  }, [availability.slot_states]);
+  }, [availability.slot_states, data.zone_pricing, data.zone_duration]);
 
   const totalAvailable = zones.reduce((sum, z) => sum + z.available, 0);
   const totalSlots = zones.reduce((sum, z) => sum + z.total, 0);
@@ -344,7 +379,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
       setLookupPayment(null);
       setPaymentSheet(null);
       setReservationResult(null);
-      setMessage('success', `Reservation ${payload.reservation?.confirmation_code || ''} released.`);
+      setMessage('success', `${isReservationInUse(lookupResult) ? 'Parking session released' : 'Reservation cancelled'} for ${payload.reservation?.confirmation_code || lookupResult.confirmation_code}.`);
       await refreshData();
     } catch (error) {
       setMessage('error', error.message || 'Failed to release reservation');
@@ -359,11 +394,20 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
       setMessage('error', 'Please select a parking slot first');
       return;
     }
+    if (!reservationForm.full_name.trim()) {
+      setMessage('error', 'Please enter your full name');
+      return;
+    }
+    if (!reservationForm.license_plate.trim()) {
+      setMessage('error', 'Please enter your license plate');
+      return;
+    }
     setBusyKey('reserve');
     setMessage('', '');
     try {
       const payloadBody = {
-        ...reservationForm,
+        full_name: reservationForm.full_name.trim(),
+        email: reservationForm.email.trim(),
         phone: user?.phone || reservationForm.phone,
         license_plate: reservationForm.license_plate.toUpperCase(),
         slot_id: selectedSlot,
@@ -386,12 +430,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
         setUserBookings(prev => [payload.reservation, ...prev]);
         await refreshData();
         
-        if (reservationForm.payment_method === 'alipay' && data.payments.enabled && payload.reservation.confirmation_code) {
-          await prepareReservationPayment(
-            payload.reservation.confirmation_code,
-            `Reservation ${payload.reservation.confirmation_code} confirmed. Pay with Alipay QR.`
-          );
-        } else if (reservationForm.payment_method === 'cash') {
+        if (reservationForm.payment_method === 'cash') {
           setMessage('success', `Reservation ${payload.reservation.confirmation_code} confirmed. Pay ¥${currentZone?.[selectedDuration] || 0} cash at gate.`);
           setReservationResult({ ...payload.reservation, show_cash_code: true });
         } else {
@@ -457,7 +496,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
         body: JSON.stringify({
           ...incidentForm,
           lot_name: 'Main Lot',
-          reporter_name: incidentForm.reporter_name || 'Guest',
+          reporter_name: user?.phone || incidentForm.reporter_name || 'Guest',
           slot_id: incidentForm.slot_id || null,
         }),
       });
@@ -476,7 +515,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
   const renderDashboard = () => (
     <div className="mobile-page mobile-dashboard">
       <div className="mobile-header">
-        <div>
+        <div className="mobile-header-copy">
           <h1 className="mobile-title">SmartParking</h1>
         </div>
         <button className="mobile-logout-btn" onClick={onLogout}>Logout</button>
@@ -593,7 +632,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
     <div className="mobile-page mobile-dashboard">
       <div className="mobile-header">
         <button className="mobile-back-btn" onClick={() => onTabChange('dashboard')}>←</button>
-        <div>
+        <div className="mobile-header-copy">
           <h1 className="mobile-title">My Bookings</h1>
           <p className="mobile-subtitle">Your reservations</p>
         </div>
@@ -642,32 +681,49 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
         ) : (
           <div style={{ display: 'grid', gap: '12px', marginTop: activeSession ? '16px' : '0' }}>
             {userBookings.map(booking => (
-              <div key={booking.id} className="mobile-incident-card">
+              <div key={booking.id} className="mobile-incident-card" style={booking.status === 'expired' ? { opacity: 0.6, borderColor: '#666' } : booking.status === 'in_use' ? { borderColor: '#22c55e' } : {}}>
                 <div className="mobile-incident-header">
                   <strong>{booking.confirmation_code}</strong>
-                  <span className={`mobile-incident-status ${booking.payment_status === 'paid' ? 'resolved' : 'open'}`}>
-                    {booking.payment_status === 'paid' ? 'Paid' : 'Pending'}
+                  <span className={`mobile-incident-status ${booking.status === 'in_use' ? 'investigating' : booking.status === 'expired' ? 'resolved' : booking.payment_status === 'paid' ? 'resolved' : 'open'}`}>
+                    {booking.status === 'in_use' ? 'In Use' : booking.status === 'expired' ? 'Expired' : booking.status === 'completed' ? 'Completed' : booking.payment_status === 'paid' ? 'Paid' : 'Pending'}
                   </span>
                 </div>
-                <div style={{ display: 'grid', gap: '8px', fontSize: '13px', color: '#94a3b8' }}>
-                  <div><span>Slot:</span> <strong style={{ color: '#fff' }}>{booking.slot_id || 'Auto'}</strong></div>
-                  <div><span>Zone:</span> <strong style={{ color: '#fff' }}>{booking.zone || 'A'}</strong></div>
-                  <div><span>Plate:</span> <strong style={{ color: '#fff' }}>{booking.license_plate || '-'}</strong></div>
-                  <div><span>Status:</span> <strong style={{ color: '#fff', textTransform: 'capitalize' }}>{booking.status}</strong></div>
-                  {booking.qr_data && (
-                    <div style={{ marginTop: '12px', padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '11px', color: '#666', marginBottom: '6px' }}>Scan for Cashier</div>
-                      <img 
-                        src={generateQRCode(booking.qr_data, 100)} 
-                        alt="QR Code" 
-                        style={{ width: '100px', height: '100px', borderRadius: '4px' }}
-                      />
-                      <div style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 'bold', color: '#000', marginTop: '6px' }}>
-                        {booking.confirmation_code}
-                      </div>
+                <div className="mobile-booking-details">
+                  <div><span>Slot:</span> <strong>{booking.slot_id || 'Auto'}</strong></div>
+                  <div><span>Zone:</span> <strong>{booking.zone || 'A'}</strong></div>
+                  <div><span>Plate:</span> <strong>{booking.license_plate || '-'}</strong></div>
+                  <div><span>Status:</span> <strong className={booking.status === 'expired' ? 'expired' : ''} style={{ textTransform: 'capitalize' }}>{booking.status}</strong></div>
+                  {booking.entry_time && (
+                    <div><span>Entry:</span> <strong>{formatDateTime(booking.entry_time)}</strong></div>
+                  )}
+                  {booking.time_spent_minutes !== null && booking.time_spent_minutes !== undefined && (
+                    <div><span>Time Spent:</span> <strong style={{ color: booking.overstay_minutes > 0 ? '#ef4444' : '#22c55e' }}>{booking.time_spent_minutes} min</strong></div>
+                  )}
+                  {!booking.entry_time && (
+                    <div><span>Ends:</span> <strong>{formatDateTime(booking.end_time)}</strong></div>
+                  )}
+                  {booking.overstay_minutes > 0 && (
+                    <div style={{ background: 'rgba(239,68,68,0.1)', padding: '8px 12px', borderRadius: '8px', marginTop: '8px' }}>
+                      <div style={{ color: '#ef4444', fontSize: '13px', fontWeight: '600' }}>Overstay: {booking.overstay_minutes} min</div>
+                      <div style={{ color: '#ef4444', fontSize: '12px' }}>Additional charge: ¥{booking.overstay_amount?.toFixed(2) || '0.00'}</div>
                     </div>
                   )}
                 </div>
+                {reservationQrValue(booking) && booking.status !== 'expired' && booking.status !== 'completed' && (
+                  <div className="mobile-reservation-qr-card">
+                    <div className="mobile-reservation-qr-label">Reservation QR - Show to Cashier</div>
+                    <QRCodeImage
+                      data={reservationQrValue(booking)}
+                      alt="QR Code"
+                      size={148}
+                      className="mobile-reservation-qr-image"
+                      style={{ width: '148px', height: '148px' }}
+                    />
+                    <div className="mobile-reservation-qr-code">
+                      {booking.confirmation_code}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -680,7 +736,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
     <div className="mobile-page mobile-reserve">
       <div className="mobile-header">
         <button className="mobile-back-btn" onClick={() => onTabChange('dashboard')}>←</button>
-        <div>
+        <div className="mobile-header-copy">
           <h1 className="mobile-title">Reserve a Spot</h1>
           <p className="mobile-subtitle">Select a parking space</p>
         </div>
@@ -806,33 +862,11 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
             disabled={!selectedSlot || busyKey === 'reserve'}
             onClick={handleReserve}
           >
-            {busyKey === 'reserve' ? 'Reserving...' : `Confirm & Pay ¥${currentZone?.[selectedDuration] || 0}`}
+            {busyKey === 'reserve' ? 'Reserving...' : 'Confirm'}
           </button>
         </div>
 
-        {reservationResult && (
-          <div className="mobile-result-card">
-            <strong>{reservationResult.confirmation_code || 'Waitlist active'}</strong>
-            <span>
-              {reservationResult.slot_id
-                ? `Slot ${reservationResult.slot_id} in Zone ${reservationResult.zone || selectedZone}`
-                : 'You are on the waitlist.'}
-            </span>
-            {reservationResult.show_cash_code && reservationResult.confirmation_code && (
-              <div style={{ marginTop: '12px', padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>Show to Cashier</div>
-                <img 
-                  src={generateQRCode(`PARKING:${reservationResult.confirmation_code}|${reservationResult.license_plate || ''}|${reservationResult.zone || selectedZone}|${reservationResult.slot_id || ''}`, 120)} 
-                  alt="QR Code" 
-                  style={{ width: '120px', height: '120px', borderRadius: '4px' }}
-                />
-                <div style={{ fontFamily: 'monospace', fontSize: '14px', fontWeight: 'bold', color: '#000', marginTop: '6px' }}>
-                  {reservationResult.confirmation_code}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+
       </div>
     </div>
   );
@@ -841,7 +875,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
     <div className="mobile-page mobile-find">
       <div className="mobile-header">
         <button className="mobile-back-btn" onClick={() => onTabChange('dashboard')}>←</button>
-        <div>
+        <div className="mobile-header-copy">
           <h1 className="mobile-title">Find My Vehicle</h1>
           <p className="mobile-subtitle">Search for your reservation</p>
         </div>
@@ -896,11 +930,8 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
               <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#00D9D9' }}>¥{activeSession.amount_due}</div>
             </div>
             {activeSession.payment_method === 'cash' ? (
-              <div style={{ marginTop: '12px', padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>Pay at Gate - Show to Cashier</div>
-                <div style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: 'bold', color: '#000' }}>
-                  {activeSession.confirmation_code}
-                </div>
+              <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(0,217,217,0.1)', border: '1px solid rgba(0,217,217,0.3)', borderRadius: '10px', textAlign: 'center' }}>
+                <div className="mobile-reservation-qr-label">Reservation QR - Show to Cashier</div>
               </div>
             ) : (
               <div className="mobile-vehicle-actions">
@@ -927,21 +958,22 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
           <div className="mobile-vehicle-result">
             <div className="mobile-vehicle-header">
               <p className="mobile-vehicle-plate">{lookupResult.confirmation_code || lookupResult.license_plate}</p>
-              <span className={`mobile-vehicle-status ${lookupResult.payment_status === 'paid' ? 'paid' : 'pending'}`}>
-                {lookupResult.payment_status === 'paid' ? 'Paid' : 'Pending'}
+              <span className={`mobile-vehicle-status ${lookupStatusTone(lookupResult)}`}>
+                {lookupStatusLabel(lookupResult)}
               </span>
             </div>
             <div className="mobile-vehicle-details">
               <div><span>Slot</span><strong>{lookupResult.slot_id || 'Auto assigned'}</strong></div>
               <div><span>Zone</span><strong>{lookupResult.zone || 'A'}</strong></div>
               <div><span>Payment</span><strong>{lookupResult.payment_method === 'alipay' ? 'Alipay' : 'Cash at Gate'}</strong></div>
-              <div><span>Status</span><strong>{lookupResult.status || 'pending'}</strong></div>
+              <div><span>Reservation</span><strong>{lookupStatusLabel(lookupResult)}</strong></div>
+              <div><span>Payment Status</span><strong>{lookupResult.payment_status || 'pending'}</strong></div>
               <div><span>Start</span><strong>{formatDateTime(lookupResult.start_time)}</strong></div>
               <div><span>Ends</span><strong>{formatDateTime(lookupResult.end_time)}</strong></div>
             </div>
-            {lookupResult.payment_status !== 'paid' && lookupResult.status !== 'cancelled' && (
+            {!['cancelled', 'expired', 'completed'].includes(String(lookupResult.status || '').toLowerCase()) && (
               <div className="mobile-vehicle-actions">
-                {lookupResult.payment_method === 'alipay' && data.payments.enabled && (
+                {lookupResult.payment_status !== 'paid' && lookupResult.payment_method === 'alipay' && data.payments.enabled && (
                   <button
                     className="mobile-primary-btn"
                     onClick={() => prepareReservationPayment(lookupResult.confirmation_code, 'Payment QR opened.')}
@@ -950,26 +982,16 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
                     Pay with Alipay
                   </button>
                 )}
-                {lookupResult.payment_method === 'cash' && (
-                  <div style={{ textAlign: 'center', padding: '12px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>Pay at Gate</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#00D9D9' }}>Show code to cashier</div>
-                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginTop: '4px' }}>{lookupResult.confirmation_code}</div>
+                {lookupResult.payment_status !== 'paid' && lookupResult.payment_method === 'cash' && (
+                  <div style={{ textAlign: 'center', padding: '12px', background: 'rgba(0,217,217,0.1)', border: '1px solid rgba(0,217,217,0.3)', borderRadius: '10px', marginBottom: '12px' }}>
+                    <div className="mobile-reservation-qr-label">Reservation QR - Show to Cashier</div>
                   </div>
                 )}
                 <button className="mobile-secondary-btn" onClick={handleCheckout} disabled={busyKey === 'checkout'}>
-                  Release Spot
+                  {isReservationInUse(lookupResult) ? 'Release Spot' : 'Cancel Reservation'}
                 </button>
               </div>
             )}
-          </div>
-        )}
-              {lookupResult.status !== 'cancelled' && (
-                <button className="mobile-secondary-btn" onClick={handleCheckout} disabled={busyKey === 'checkout'}>
-                  Release Spot
-                </button>
-              )}
-            </div>
           </div>
         )}
 
@@ -1000,7 +1022,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
     <div className="mobile-page mobile-report">
       <div className="mobile-header">
         <button className="mobile-back-btn" onClick={() => onTabChange('dashboard')}>←</button>
-        <div>
+        <div className="mobile-header-copy">
           <h1 className="mobile-title">Report Issue</h1>
           <p className="mobile-subtitle">Submit incident or problem</p>
         </div>
@@ -1029,6 +1051,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
             type="tel"
             placeholder="Your phone number"
             value={incidentForm.reporter_name}
+            readOnly={Boolean(user?.phone)}
             onChange={(e) => setIncidentForm((prev) => ({ ...prev, reporter_name: e.target.value }))}
           />
           <h2 className="mobile-section-title">TITLE</h2>
@@ -1148,7 +1171,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
     <div className="mobile-page mobile-passes">
       <div className="mobile-header">
         <button className="mobile-back-btn" onClick={() => onTabChange('dashboard')}>←</button>
-        <div>
+        <div className="mobile-header-copy">
           <h1 className="mobile-title">Monthly Passes</h1>
           <p className="mobile-subtitle">Recurring parking for frequent drivers</p>
         </div>
@@ -1217,7 +1240,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
               <button onClick={() => setPaymentSheet(null)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={24} /></button>
             </div>
             <div className="mobile-payment-qr">
-              {paymentSheet.qr_code?.startsWith('http') || paymentSheet.qr_code?.startsWith('data:') ? (
+              {looksLikeImageSource(paymentSheet.qr_code) ? (
                 <img src={paymentSheet.qr_code} alt="Payment QR" />
               ) : (
                 <div className="mobile-payment-fallback">{paymentSheet.qr_code || 'QR unavailable'}</div>

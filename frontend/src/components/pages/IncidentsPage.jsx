@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { authFetch, authHeaders } from '../../lib/auth';
 import { apiUrl } from '../../lib/api';
 
 const IncidentsPage = ({ token, user }) => {

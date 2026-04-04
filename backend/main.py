@@ -497,7 +497,7 @@ app.mount("/videos", StaticFiles(directory="videos"), name="videos")
 
 # Mount static files for uploads
 os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="../uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.websocket("/ws/parking-updates")
 async def websocket_endpoint(websocket: WebSocket):
@@ -1177,6 +1177,30 @@ async def process_video():
                                 open_sess.duration_minutes = closed_duration_minutes
                                 db.commit()
 
+                            # Check for active reservation and update overstay
+                            try:
+                                from sqlalchemy import or_
+                                active_reservation = (
+                                    db.query(Reservation)
+                                    .filter(
+                                        Reservation.slot_id == slot_id,
+                                        Reservation.status.in_(["in_use", "confirmed"]),
+                                    )
+                                    .order_by(Reservation.created_at.desc())
+                                    .first()
+                                )
+                                if active_reservation and active_reservation.entry_time:
+                                    active_reservation.actual_exit_time = now
+                                    # Calculate overstay
+                                    reserved_end = active_reservation.end_time
+                                    if now > reserved_end:
+                                        overstay_seconds = (now - reserved_end).total_seconds()
+                                        active_reservation.overstay_minutes = max(0, int(overstay_seconds / 60))
+                                    active_reservation.status = "completed"
+                                    db.commit()
+                            except Exception:
+                                db.rollback()
+
                         update_slot_status(db, slot_id, state, dwell_minutes=closed_duration_minutes)
 
                         # ParkingSession tracking (requested feature)
@@ -1184,6 +1208,28 @@ async def process_video():
                             sess = ParkingSession(slot_id=slot_id, entry_time=now)
                             db.add(sess)
                             db.commit()
+
+                            # Check for reservation and update status to in_use
+                            try:
+                                from sqlalchemy import or_
+                                active_reservation = (
+                                    db.query(Reservation)
+                                    .filter(
+                                        Reservation.slot_id == slot_id,
+                                        Reservation.status == "confirmed",
+                                        Reservation.end_time > now,
+                                    )
+                                    .order_by(Reservation.created_at.desc())
+                                    .first()
+                                )
+                                if active_reservation:
+                                    active_reservation.entry_time = now
+                                    active_reservation.status = "in_use"
+                                    db.commit()
+                                    print(f"Reservation {active_reservation.confirmation_code} now in_use at slot {slot_id}", flush=True)
+                            except Exception as e:
+                                print(f"Error updating reservation status: {e}", flush=True)
+                                db.rollback()
 
                             # Log speed if available (from nearest detection)
                             det_speed = None
