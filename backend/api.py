@@ -3504,6 +3504,14 @@ async def video_feed():
     return StreamingResponse(generate_latest_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
+def _frame_response_headers():
+    return {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+
 def _status_frame_bytes(message: str, detail: str = ""):
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     frame[:] = (8, 12, 18)
@@ -3593,17 +3601,57 @@ async def parking_snapshot(annotated: bool = False):
     if annotated:
         annotated_bytes = getattr(state, "latest_jpeg", None)
         if annotated_bytes:
-            return Response(content=annotated_bytes, media_type="image/jpeg")
+            return Response(content=annotated_bytes, media_type="image/jpeg", headers=_frame_response_headers())
 
     # Prefer using the latest raw frame from the background pipeline to avoid
     # camera contention (opening a second VideoCapture often fails on webcam).
     raw_bytes = getattr(state, "latest_raw_jpeg", None)
     if raw_bytes:
-        return Response(content=raw_bytes, media_type="image/jpeg")
+        return Response(content=raw_bytes, media_type="image/jpeg", headers=_frame_response_headers())
 
     # No frame available yet - return error instead of opening a second VideoCapture
     # which causes webcam contention on macOS/Linux
     raise HTTPException(status_code=503, detail="No frame available yet - camera may still be initializing")
+
+
+@app.get("/parking/frame")
+async def parking_frame(annotated: bool = False):
+    """
+    Backward-compatible single-frame endpoint used by older dashboards.
+    Returns the latest frame published by the background pipeline.
+    """
+    state = _live_feed_state()
+    frame_bytes = getattr(state, "latest_jpeg" if annotated else "latest_raw_jpeg", None)
+
+    if not frame_bytes and not annotated:
+        frame_bytes = getattr(state, "latest_jpeg", None)
+
+    if frame_bytes:
+        return Response(content=frame_bytes, media_type="image/jpeg", headers=_frame_response_headers())
+
+    source = getattr(state, "camera_source", getattr(Config, "VIDEO_SOURCE", None))
+    source_mode = _source_mode(source)
+    camera_open = bool(getattr(state, "camera_open", False))
+    camera_ok = bool(getattr(state, "camera_last_read_ok", False))
+
+    if source_mode == "none":
+        message = "No video source selected"
+        detail = "Use Webcam or Upload Feed from the controls panel."
+    elif camera_open and not camera_ok:
+        message = "Feed initializing"
+        detail = "The stream is starting. Wait a moment for the first frame."
+    elif not camera_open:
+        message = "Unable to open video source"
+        detail = f"Current mode: {source_mode}. Check camera permission or uploaded file access."
+    else:
+        message = "Waiting for processed frame"
+        detail = "The backend has a source but has not published a frame yet."
+
+    placeholder = _status_frame_bytes(message, detail)
+    if placeholder:
+        return Response(content=placeholder, media_type="image/jpeg", headers=_frame_response_headers())
+
+    raise HTTPException(status_code=503, detail="No frame available yet")
 
 def generate_frames():
     """Generator function to yield video frames as JPEG images."""
@@ -3761,15 +3809,19 @@ def parking_override(data: dict, db: Session = Depends(get_db)):
 async def camera_status():
     """Check if the current video source is active and reading frames."""
     try:
+        state = _live_feed_state()
         source = getattr(Config, "VIDEO_SOURCE", None)
         active_camera_id = _get_active_camera_id()
         cameras = _load_camera_sources()
-        # Prefer background pipeline state (true "currently open and reading frames").
-        if hasattr(app.state, "camera_open"):
-            source = getattr(app.state, "camera_source", source)
+        # Use same state resolution as video-feed for consistency
+        camera_open = getattr(state, "camera_open", False)
+        camera_last_read_ok = getattr(state, "camera_last_read_ok", False)
+        camera_source = getattr(state, "camera_source", source)
+        if camera_open or camera_last_read_ok:
+            source = camera_source or source
             return {
-                "active": bool(getattr(app.state, "camera_open", False) and getattr(app.state, "camera_last_read_ok", False)),
-                "open": bool(getattr(app.state, "camera_open", False)),
+                "active": bool(camera_open and camera_last_read_ok),
+                "open": bool(camera_open),
                 "source": _normalize_source_value(source),
                 "mode": _source_mode(source),
                 "active_camera_id": active_camera_id,
@@ -4099,7 +4151,7 @@ def _get_slots_path_for_current_source():
     """
     Decide which slots JSON to use based on the active video source.
     Named cameras get their own layout; generic webcams keep the webcam layout;
-    everything else uses the default file.
+    uploaded videos use their own slots file; everything else uses the default.
     """
     active_camera = _get_camera_by_id(_get_active_camera_id())
     if active_camera and active_camera.get("slots_path"):
@@ -4108,6 +4160,12 @@ def _get_slots_path_for_current_source():
     src = _normalize_source_value(getattr(app.state, "camera_source", getattr(Config, "VIDEO_SOURCE", None)))
     if isinstance(src, int) or (isinstance(src, str) and src.startswith("/dev/video")):
         return Config.PARKING_SLOTS_JSON_WEBCAM
+
+    if isinstance(src, str) and "uploaded_feed" in src:
+        slug = os.path.splitext(os.path.basename(src))[0]
+        uploaded_slots = os.path.join(Config.SLOTS_DIR, f"slots_{slug}.json")
+        return uploaded_slots
+
     return Config.PARKING_SLOTS_JSON
 
 
@@ -4203,8 +4261,9 @@ def get_parking_stats(db: Session = Depends(get_db)):
     Total reflects slots defined in SlotEditor (parking_slots.json).
     Returns all zeros when camera/video is not active.
     """
-    # Check if camera is active
-    camera_active = bool(getattr(app.state, "camera_open", False) and getattr(app.state, "camera_last_read_ok", False))
+    # Check if camera is active (use same state as video-feed)
+    state = _live_feed_state()
+    camera_active = bool(getattr(state, "camera_open", False) and getattr(state, "camera_last_read_ok", False))
 
     # Get total from saved slots JSON (SlotEditor)
     total_from_json = 0

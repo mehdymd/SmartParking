@@ -6,6 +6,7 @@ import asyncio
 import cv2
 import os
 import json
+from concurrent.futures import ThreadPoolExecutor
 import math
 import re
 import numpy as np
@@ -65,6 +66,7 @@ status = {}  # slot_id -> 'occupied' | 'available'
 reload_flag = False
 annotated_url = None
 last_occupancy_history_ts = 0.0
+_inference_executor = None
 
 
 def _get_speed_alert_threshold():
@@ -162,6 +164,15 @@ def _resolve_slots_path_for_source(source, active_camera_id=None):
     for camera in cameras:
         if _normalize_source_value(camera["source"]) == normalized_source and camera.get("slots_path"):
             return camera["slots_path"]
+
+    # Uploaded video: use its own slots file
+    if isinstance(source, str) and "uploaded_feed" in source:
+        ext = os.path.splitext(source)[1].lower() or ".mp4"
+        slug = os.path.splitext(os.path.basename(source))[0]  # e.g. "uploaded_feed_abc123"
+        uploaded_slots = os.path.join(Config.SLOTS_DIR, f"slots_{slug}.json")
+        if os.path.exists(uploaded_slots):
+            return uploaded_slots
+        return Config.PARKING_SLOTS_JSON_WEBCAM  # fallback to webcam slots as default
 
     if isinstance(normalized_source, int) or (isinstance(normalized_source, str) and normalized_source.startswith("/dev/video")):
         return Config.PARKING_SLOTS_JSON_WEBCAM
@@ -459,15 +470,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Error loading YOLO model: {e}", flush=True)
         app.state.model = None
-    
+
+    # Thread pool for YOLO inference (offload blocking work from async loop)
+    global _inference_executor
+    _inference_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="inference")
+
     # Start background video processing task
     video_task = asyncio.create_task(process_video_wrapper())
     # Start abandoned vehicle checker
     abandoned_task = asyncio.create_task(check_abandoned_loop())
     print("Startup: application ready", flush=True)
-    
+
     yield
     # Shutdown
+    _inference_executor.shutdown(wait=False)
     if video_task:
         video_task.cancel()
         try:
@@ -560,6 +576,36 @@ async def websocket_endpoint(websocket: WebSocket):
 # Include API routes
 app.include_router(api_app.router)
 
+def _run_inference(frame_rgb, infer_scale, vehicle_classes):
+    """Blocking inference call — runs in thread pool."""
+    global app, _inference_executor
+    model_local = getattr(app.state, "model", None)
+    if model_local is None:
+        return None
+    detections = []
+    det_centroids = []
+    try:
+        results = model_local(frame_rgb, conf=0.3, verbose=False)
+        if results and len(results) > 0:
+            for box in results[0].boxes:
+                try:
+                    if int(box.cls[0]) not in vehicle_classes:
+                        continue
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    if infer_scale != 1.0:
+                        x1 /= infer_scale
+                        y1 /= infer_scale
+                        x2 /= infer_scale
+                        y2 /= infer_scale
+                    detections.append({"bbox": [float(x1), float(y1), float(x2), float(y2)]})
+                    det_centroids.append((float((x1 + x2) / 2.0), float((y1 + y2) / 2.0)))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return detections, det_centroids
+
+
 async def process_video_wrapper():
     """Wrapper to prevent video processing errors from crashing the server."""
     try:
@@ -583,7 +629,8 @@ async def process_video():
     vehicle_classes = [2, 5, 7]
     # Keep the processing loop cooperative so API requests are still served.
     frame_loop_sleep = 0.001
-    max_infer_width = 960
+    target_fps = float(os.getenv("PROCESS_FPS", "15"))  # Cap processing FPS
+    max_infer_width = 640  # Lower for better performance
     
     loop = asyncio.get_event_loop()
 
@@ -826,12 +873,14 @@ async def process_video():
         prev_gray = None  # for speed estimation optical flow
 
         while True:
+            frame_start_ts = datetime.utcnow().timestamp()
+
             # Check if source changed
             if Config.VIDEO_SOURCE != current_source:
                 current_source = Config.VIDEO_SOURCE
                 api_app.state.camera_source = current_source
                 api_app.state.active_camera_id = _camera_id_for_source(current_source, getattr(api_app.state, "active_camera_id", None))
-                is_image_source = isinstance(current_source, str) and current_source.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+                is_image_source = isinstance(current_source, str) and not current_source.startswith("http") and not current_source.startswith("/dev/") and current_source.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
                 static_frame = None
                 if cap is not None:
                     try:
@@ -867,7 +916,7 @@ async def process_video():
                     print(f"Error switching to source {current_source}: {e}")
                     api_app.state.camera_open = False
                     break
-                frame_count = 0  # Reset frame count
+                frame_count = 0
                 last_detections = []
                 last_occupancy = {}
                 slot_bboxes = {}
@@ -877,39 +926,26 @@ async def process_video():
                 last_reserved_slots = set()
                 last_reserved_refresh_ts = 0.0
                 prev_gray = None
-            
+
+            # Non-blocking frame read via executor
             if static_frame is not None:
                 frame = static_frame.copy()
                 ret = True
             else:
-                ret, frame = cap.read()
+                ret, frame = await loop.run_in_executor(None, cap.read)
             api_app.state.camera_last_read_ok = bool(ret)
             if not ret:
-                # Loop playback for file-based sources; break for live sources.
                 if isinstance(current_source, str) and not current_source.startswith("http") and not current_source.startswith("/dev/"):
                     try:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        await asyncio.sleep(frame_loop_sleep)
-                        continue
                     except Exception:
                         pass
-                break
+                await asyncio.sleep(0.01)
+                continue
 
-            # Publish the raw frame immediately so the live feed does not sit on a
-            # placeholder while YOLO inference and database work are still running.
-            try:
-                ok_raw, buf_raw = cv2.imencode(".jpg", frame)
-                if ok_raw:
-                    raw_bytes = buf_raw.tobytes()
-                    api_app.state.latest_raw_jpeg = raw_bytes
-                    if not getattr(api_app.state, "latest_jpeg", None):
-                        api_app.state.latest_jpeg = raw_bytes
-                        api_app.state.latest_jpeg_ts = datetime.utcnow().timestamp()
-            except Exception:
-                pass
-            
             frame_count += 1
-            # Reload slot config immediately when JSON changes and rebuild bboxes.
+
+            # Reload slot config immediately when JSON changes
             try:
                 slots_path = _slots_path_for_source(current_source)
                 _load_slots_json(slots_path)
@@ -926,15 +962,12 @@ async def process_video():
             except Exception:
                 pass
 
-            # Run inference on every Nth frame for performance
-            now_ts = datetime.utcnow().timestamp()
+            # Run inference on every Nth frame
             run_infer = (frame_count % Config.FRAME_SKIP == 0)
             detections = last_detections
             det_centroids = []
             if run_infer and model is not None:
                 try:
-                    last_infer_ts = now_ts
-                    # YOLO expects RGB for best results
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     infer_scale = 1.0
                     if frame_rgb.shape[1] > max_infer_width:
@@ -944,32 +977,21 @@ async def process_video():
                             (int(frame_rgb.shape[1] * infer_scale), int(frame_rgb.shape[0] * infer_scale)),
                             interpolation=cv2.INTER_AREA,
                         )
-                    results = model(
-                        frame_rgb,
-                        conf=0.3,
-                        verbose=False,
+
+                    infer_future = _inference_executor.submit(
+                        lambda f, s, vs: _run_inference(f, s, vs),
+                        frame_rgb.copy(), infer_scale, vehicle_classes
                     )
-                    detections = []
-                    det_centroids = []
-                    if results and len(results) > 0:
-                        for box in results[0].boxes:
-                            try:
-                                if int(box.cls[0]) not in vehicle_classes:
-                                    continue
-                                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                                if infer_scale != 1.0:
-                                    x1 /= infer_scale
-                                    y1 /= infer_scale
-                                    x2 /= infer_scale
-                                    y2 /= infer_scale
-                                detections.append({"bbox": [float(x1), float(y1), float(x2), float(y2)]})
-                                det_centroids.append((float((x1 + x2) / 2.0), float((y1 + y2) / 2.0)))
-                            except Exception:
-                                continue
-                    last_detections = detections
+                    infer_result = infer_future.result(timeout=1.0)
+                    if infer_result:
+                        detections, det_centroids = infer_result
+                        last_detections = detections
                 except Exception as e:
                     print(f"YOLO inference error: {e}")
 
+            now_ts = datetime.utcnow().timestamp()
+
+            # Reserved slots refresh
             if (now_ts - last_reserved_refresh_ts) >= 1.0:
                 try:
                     db_reserved = SessionLocal()
@@ -983,16 +1005,18 @@ async def process_video():
                     except Exception:
                         pass
 
-            # Speed estimation via optical flow
+            # Speed estimation
             curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            speed_estimates = {}  # detection_idx -> speed_kmh
+            speed_estimates = {}
             if prev_gray is not None and detections:
                 for di, det in enumerate(detections):
-                    spd = estimate_speed(prev_gray, curr_gray, det["bbox"], fps=30.0)
+                    spd = estimate_speed(prev_gray, curr_gray, det["bbox"], fps=target_fps)
                     if spd is not None:
                         speed_estimates[di] = spd
                         det["speed_kmh"] = spd
             prev_gray = curr_gray
+
+            # ... rest of entry/exit and occupancy logic unchanged ...
 
             # Entry/Exit based transactions (preferred when zones exist)
             if scaled_entry and scaled_exit and det_centroids:
@@ -1315,6 +1339,13 @@ async def process_video():
                 print(f"Error encoding latest frame: {e}")
 
             await asyncio.sleep(frame_loop_sleep)
+
+            # FPS cap: enforce target_fps
+            frame_duration = 1.0 / target_fps if target_fps > 0 else 0
+            elapsed = datetime.utcnow().timestamp() - frame_start_ts
+            sleep_time = frame_duration - elapsed
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
         
         api_app.state.camera_open = False
         if cap is not None:

@@ -15,7 +15,7 @@ import MobileLogin from './components/pages/MobileLogin';
 import UsersPage from './components/pages/UsersPage';
 import CashierDashboard from './components/pages/CashierDashboard';
 import { authFetch, loadAuth, saveAuth } from './lib/auth';
-import { mobileAuth } from './lib/api';
+import { mobileAuth, wsUrl } from './lib/api';
 
 function App() {
   const initialParams = new URLSearchParams(window.location.search);
@@ -28,10 +28,65 @@ function App() {
 
   const currentUser = auth?.user || null;
   const token = auth?.token || null;
-  const wsConnected = true;
-  const wsReconnecting = false;
-  const wsStatus = 'connected';
-  const wsData = { status: {}, stats: {}, alerts: [] };
+  const [wsData, setWsData] = useState({ status: {}, stats: {}, alerts: [] });
+  const [wsConnected, setWsConnected] = useState(false);
+  const [wsReconnecting, setWsReconnecting] = useState(false);
+  const wsStatus = wsConnected ? 'connected' : 'disconnected';
+
+  useEffect(() => {
+    const wsTarget = wsUrl('/ws/parking-updates');
+    let ws = null;
+    let reconnectTimer = null;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(wsTarget);
+      } catch {
+        setWsConnected(false);
+        return;
+      }
+
+      ws.onopen = () => {
+        setWsConnected(true);
+        setWsReconnecting(false);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'update') {
+            setWsData({
+              status: msg.status || {},
+              stats: msg.stats || {},
+              alerts: [],
+            });
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        ws = null;
+        reconnectTimer = setTimeout(connect, 3000);
+        setWsReconnecting(true);
+      };
+
+      ws.onerror = () => {
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+      };
+    };
+
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, []);
 
   const allowedPages = useMemo(() => {
     const role = currentUser?.role || 'user';

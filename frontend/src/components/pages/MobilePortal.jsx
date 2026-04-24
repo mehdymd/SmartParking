@@ -313,7 +313,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
       setPaymentSheet({
         type: 'reservation',
         title: `Reservation ${payload.payment_request?.reservation_code || confirmationCode}`,
-        subtitle: 'Scan the Alipay QR to complete payment.',
+        subtitle: 'Scan the QR code to complete payment.',
         ...payload.payment_request,
       });
       if (successText) setMessage('success', successText);
@@ -853,7 +853,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
                 onClick={() => setReservationForm((prev) => ({ ...prev, payment_method: 'alipay' }))}
               >
                 <CreditCard size={16} />
-                Alipay
+                Payment
               </button>
             </div>
           </div>
@@ -920,7 +920,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
             <div className="mobile-vehicle-details">
               <div><span>Slot</span><strong>{activeSession.slot_id}</strong></div>
               <div><span>Zone</span><strong>{activeSession.zone}</strong></div>
-              <div><span>Payment</span><strong>{activeSession.payment_method === 'alipay' ? 'Alipay' : 'Cash at Gate'}</strong></div>
+              <div><span>Payment</span><strong>{activeSession.payment_method === 'alipay' ? 'Payment' : 'Cash at Gate'}</strong></div>
               <div><span>Entry</span><strong>{formatDateTime(activeSession.entry_time)}</strong></div>
               <div><span>Duration</span><strong>{activeSession.duration_minutes} min</strong></div>
               <div><span>Rate</span><strong>¥{activeSession.hourly_rate}/hr</strong></div>
@@ -941,7 +941,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
                     onClick={() => prepareReservationPayment(activeSession.confirmation_code || 'SESSION-' + activeSession.session_id, 'Payment QR opened.')}
                     disabled={busyKey === 'payment'}
                   >
-                    Pay with Alipay
+                    Pay with Payment
                   </button>
                 )}
               </div>
@@ -965,7 +965,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
             <div className="mobile-vehicle-details">
               <div><span>Slot</span><strong>{lookupResult.slot_id || 'Auto assigned'}</strong></div>
               <div><span>Zone</span><strong>{lookupResult.zone || 'A'}</strong></div>
-              <div><span>Payment</span><strong>{lookupResult.payment_method === 'alipay' ? 'Alipay' : 'Cash at Gate'}</strong></div>
+              <div><span>Payment</span><strong>{lookupResult.payment_method === 'alipay' ? 'Payment' : 'Cash at Gate'}</strong></div>
               <div><span>Reservation</span><strong>{lookupStatusLabel(lookupResult)}</strong></div>
               <div><span>Payment Status</span><strong>{lookupResult.payment_status || 'pending'}</strong></div>
               <div><span>Start</span><strong>{formatDateTime(lookupResult.start_time)}</strong></div>
@@ -979,7 +979,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
                     onClick={() => prepareReservationPayment(lookupResult.confirmation_code, 'Payment QR opened.')}
                     disabled={busyKey === 'payment'}
                   >
-                    Pay with Alipay
+                    Pay with Payment
                   </button>
                 )}
                 {lookupResult.payment_status !== 'paid' && lookupResult.payment_method === 'cash' && (
@@ -1210,7 +1210,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
             disabled={!passForm.plan_id || busyKey === 'pass'}
             onClick={handlePassCheckout}
           >
-            {busyKey === 'pass' ? 'Preparing...' : `Pay ¥${formatMoney(passCatalog.find(p => p.id === passForm.plan_id)?.amount || 0)} via Alipay`}
+            {busyKey === 'pass' ? 'Preparing...' : `Pay ¥${formatMoney(passCatalog.find(p => p.id === passForm.plan_id)?.amount || 0)} via Payment`}
           </button>
         </div>
       </div>
@@ -1250,7 +1250,7 @@ const MobilePortal = ({ activeTab = 'dashboard', onTabChange, user, onLogout }) 
               <div><span>Amount</span><strong>¥{formatMoney(paymentSheet.amount)}</strong></div>
               <div><span>Status</span><strong>{paymentSheet.status || 'pending'}</strong></div>
             </div>
-            <p className="mobile-payment-instructions">{paymentSheet.instructions || 'Scan the code with Alipay to complete payment.'}</p>
+            <p className="mobile-payment-instructions">{paymentSheet.instructions || 'Scan the code with Payment to complete payment.'}</p>
           </div>
         </div>
       )}

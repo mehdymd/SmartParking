@@ -356,11 +356,7 @@ const ReservationsPage = ({ token, user }) => {
         </div>
       )}
 
-      {canManage && !paymentConfig.enabled && (
-        <div className="glass" style={{ padding: '16px 18px', marginBottom: '20px', border: '1px solid rgba(241,196,15,0.24)', color: '#ffe29a' }}>
-          Admin test payment QR is not configured. Open Settings and add the Alipay QR code before using reservation payments.
-        </div>
-      )}
+      {/* Payment config check removed */}
 
       {activePayment && (
         <div className="glass" style={{ padding: '20px', marginBottom: '20px', border: '1px solid rgba(52,152,219,0.24)' }}>
@@ -378,19 +374,19 @@ const ReservationsPage = ({ token, user }) => {
                 </div>
               )}
               <div style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center' }}>
-                Scan with Alipay on a phone for test checkout.
+                Scan with your payment app to complete checkout.
               </div>
             </div>
             <div style={{ display: 'grid', gap: '12px' }}>
               <div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>Test Alipay Payment</div>
+                <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>Payment</div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
                   Reservation <strong>{activePayment.reservation_code}</strong> · Receiver <strong>{activePayment.receiver_name}</strong>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
                 <InfoCard label="Amount" value={`${activePayment.amount?.toFixed?.(2) || activePayment.amount} ${activePayment.currency || 'USD'}`} />
-                <InfoCard label="Method" value="Alipay QR" />
+                <InfoCard label="Method" value="QR Payment" />
                 <InfoCard label="Status" value={activePayment.status || 'pending'} />
               </div>
               <div style={{ padding: '14px 16px', borderRadius: '14px', background: 'rgba(255,255,255,0.03)', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.7 }}>
