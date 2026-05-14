@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell } from 'lucide-react';
 import { apiUrl } from '../lib/api';
+import { normalizeRole } from '../lib/auth';
 
 const Header = ({ currentPage, setCurrentPage, wsConnected = true, currentUser = null, onLogout = null }) => {
   const [sessionTime, setSessionTime] = useState(0);
@@ -34,16 +35,16 @@ const Header = ({ currentPage, setCurrentPage, wsConnected = true, currentUser =
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const role = currentUser?.role || 'viewer';
+  const role = normalizeRole(currentUser?.role) || 'viewer';
   const pages = [
-    'Dashboard',
-    'Reservations',
-    'Incidents',
-    'Analytics',
-    'Revenue',
-    'Alerts',
-    ...(role !== 'viewer' ? ['SlotEditor'] : []),
-    ...(role === 'admin' ? ['Settings'] : []),
+    { key: 'Dashboard', label: 'Dashboard' },
+    { key: 'Reservations', label: 'Reservations' },
+    { key: 'Incidents', label: 'Incidents' },
+    { key: 'Analytics', label: 'Analytics' },
+    { key: 'Revenue', label: 'Revenue' },
+    { key: 'Alerts', label: 'Alerts' },
+    ...(role !== 'viewer' ? [{ key: 'SlotEditor', label: 'SlotEditor' }] : []),
+    ...(role === 'admin' ? [{ key: 'Settings', label: 'Settings' }] : []),
   ];
 
   return (
@@ -71,21 +72,23 @@ const Header = ({ currentPage, setCurrentPage, wsConnected = true, currentUser =
       <nav style={{ display: 'flex', gap: '24px' }}>
         {pages.map(page => (
           <button
-            key={page}
-            onClick={() => setCurrentPage(page)}
+            key={page.key}
+            onClick={() => {
+              setCurrentPage(page.key);
+            }}
             style={{
               background: 'none',
               border: 'none',
-              color: currentPage === page ? 'var(--text-primary)' : 'var(--text-muted)',
+              color: currentPage === page.key ? 'var(--text-primary)' : 'var(--text-muted)',
               fontSize: '14px',
               fontWeight: '600',
               cursor: 'pointer',
               padding: '8px 0',
-              borderBottom: currentPage === page ? '2px solid var(--blue)' : 'none',
+              borderBottom: currentPage === page.key ? '2px solid var(--blue)' : 'none',
               transition: 'color 0.2s'
             }}
           >
-            {page}
+            {page.label}
           </button>
         ))}
       </nav>

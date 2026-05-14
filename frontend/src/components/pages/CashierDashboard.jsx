@@ -1218,6 +1218,8 @@ const CashierDashboard = ({ currentUser, token, onLogout }) => {
           ? 'Camera permission denied. Allow access and reopen the scanner.'
           : error?.name === 'NotFoundError'
             ? 'No camera was found on this device.'
+            : error?.name === 'NotReadableError' || error?.name === 'AbortError'
+              ? 'The camera is busy or unavailable. Close other apps using the webcam, or stop the parking camera feed first.'
             : 'Unable to start the QR scanner.'
       );
       setScannerStatus('Scanner unavailable');

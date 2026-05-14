@@ -1099,6 +1099,73 @@ def _cashier_payment_record_payload(record: PaymentRecord, reservation: Reservat
     }
 
 
+def _is_cashier_payment_record(record: PaymentRecord):
+    provider = str(record.payment_provider or "").lower()
+    metadata = {}
+    if record.metadata_json:
+        try:
+            metadata = json.loads(record.metadata_json) or {}
+        except Exception:
+            metadata = {}
+
+    updated_from = str(metadata.get("updated_from") or "").lower()
+    return provider.startswith("cashier") or updated_from.startswith("cashier_") or updated_from == "cashier_dashboard"
+
+
+def _list_cashier_payment_records(db: Session, user: User = None, limit: int = None):
+    query = (
+        db.query(PaymentRecord)
+        .filter(
+            PaymentRecord.payment_type == "reservation",
+            PaymentRecord.payment_provider.isnot(None),
+        )
+        .order_by(PaymentRecord.paid_at.desc(), PaymentRecord.created_at.desc(), PaymentRecord.id.desc())
+    )
+    if limit is not None:
+        query = query.limit(max(1, int(limit)))
+
+    records = query.all()
+    filtered_records = []
+    for record in records:
+        if not _is_cashier_payment_record(record):
+            continue
+        if user and user.role == "cashier" and record.user_id != user.id:
+            continue
+        filtered_records.append(record)
+    return filtered_records
+
+
+def _cashier_payment_payloads(db: Session, user: User = None, limit: int = None):
+    records = _list_cashier_payment_records(db, user=user, limit=limit)
+    reservation_ids = {record.reservation_id for record in records if record.reservation_id}
+    cashier_ids = {record.user_id for record in records if record.user_id}
+    reservations = (
+        db.query(Reservation)
+        .filter(Reservation.id.in_(reservation_ids))
+        .all()
+        if reservation_ids
+        else []
+    )
+    cashiers = (
+        db.query(User)
+        .filter(User.id.in_(cashier_ids))
+        .all()
+        if cashier_ids
+        else []
+    )
+    reservation_map = {reservation.id: reservation for reservation in reservations}
+    cashier_map = {cashier.id: cashier for cashier in cashiers}
+    payloads = [
+        _cashier_payment_record_payload(
+            record,
+            reservation_map.get(record.reservation_id),
+            cashier_map.get(record.user_id),
+        )
+        for record in records
+    ]
+    return records, payloads
+
+
 def _monthly_pass_payload(record: MonthlyPass):
     return {
         "id": record.id,
@@ -3049,62 +3116,8 @@ def cashier_payment_list(
     db: Session = Depends(get_db),
     user: User = Depends(_require_roles("admin", "cashier")),
 ):
-    records = (
-        db.query(PaymentRecord)
-        .filter(
-            PaymentRecord.payment_type == "reservation",
-            PaymentRecord.payment_provider.isnot(None),
-        )
-        .order_by(PaymentRecord.paid_at.desc(), PaymentRecord.created_at.desc(), PaymentRecord.id.desc())
-        .limit(300)
-        .all()
-    )
-
-    filtered_records = []
-    for record in records:
-        provider = str(record.payment_provider or "").lower()
-        metadata = {}
-        if record.metadata_json:
-            try:
-                metadata = json.loads(record.metadata_json) or {}
-            except Exception:
-                metadata = {}
-        updated_from = str(metadata.get("updated_from") or "").lower()
-        if not (provider.startswith("cashier") or updated_from.startswith("cashier_") or updated_from == "cashier_dashboard"):
-            continue
-        if user.role == "cashier" and record.user_id != user.id:
-            continue
-        filtered_records.append((record, metadata))
-
-    reservation_ids = {record.reservation_id for record, _ in filtered_records if record.reservation_id}
-    cashier_ids = {record.user_id for record, _ in filtered_records if record.user_id}
-    reservations = (
-        db.query(Reservation)
-        .filter(Reservation.id.in_(reservation_ids))
-        .all()
-        if reservation_ids
-        else []
-    )
-    cashiers = (
-        db.query(User)
-        .filter(User.id.in_(cashier_ids))
-        .all()
-        if cashier_ids
-        else []
-    )
-    reservation_map = {reservation.id: reservation for reservation in reservations}
-    cashier_map = {cashier.id: cashier for cashier in cashiers}
-
-    return {
-        "payments": [
-            _cashier_payment_record_payload(
-                record,
-                reservation_map.get(record.reservation_id),
-                cashier_map.get(record.user_id),
-            )
-            for record, _ in filtered_records
-        ]
-    }
+    _, payloads = _cashier_payment_payloads(db, user=user, limit=300)
+    return {"payments": payloads}
 
 
 @app.post("/issues")
@@ -4354,53 +4367,106 @@ def get_revenue_summary(db: Session = Depends(get_db)):
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=today_start.weekday())
     month_start = today_start.replace(day=1)
+    _, payments = _cashier_payment_payloads(db)
 
-    today_total = db.query(Transaction).filter(Transaction.entry_time >= today_start).with_entities(Transaction.amount).all()
-    week_total = db.query(Transaction).filter(Transaction.entry_time >= week_start).with_entities(Transaction.amount).all()
-    month_total = db.query(Transaction).filter(Transaction.entry_time >= month_start).with_entities(Transaction.amount).all()
-    total_amount = db.query(Transaction.amount).all()
-    total_vehicles = len(total_amount)
-    avg_per_vehicle = sum(a[0] for a in total_amount) / total_vehicles if total_vehicles > 0 else 0
+    def activity_time(payment):
+        return _parse_iso_datetime(payment.get("paid_at") or payment.get("created_at"))
+
+    def is_paid_status(status):
+        return str(status or "").lower() in {"paid", "completed"}
+
+    revenue_payments = [payment for payment in payments if is_paid_status(payment.get("status"))]
+    today_total = sum(float(payment.get("amount") or 0) for payment in revenue_payments if (activity_time(payment) and activity_time(payment) >= today_start))
+    week_total = sum(float(payment.get("amount") or 0) for payment in revenue_payments if (activity_time(payment) and activity_time(payment) >= week_start))
+    month_total = sum(float(payment.get("amount") or 0) for payment in revenue_payments if (activity_time(payment) and activity_time(payment) >= month_start))
+    total_revenue = sum(float(payment.get("amount") or 0) for payment in revenue_payments)
+    total_transactions = len(payments)
+    paid_transactions = len(revenue_payments)
+    pending_transactions = sum(1 for payment in payments if str(payment.get("status") or "").lower() == "pending")
+    failed_transactions = sum(1 for payment in payments if str(payment.get("status") or "").lower() in {"failed", "voided", "expired"})
+    avg_per_vehicle = (total_revenue / paid_transactions) if paid_transactions > 0 else 0.0
+    completion_rate = (paid_transactions / total_transactions * 100.0) if total_transactions > 0 else 0.0
 
     return {
-        "today": round(sum(a[0] for a in today_total), 2),
-        "week": round(sum(a[0] for a in week_total), 2),
-        "month": round(sum(a[0] for a in month_total), 2),
-        "avg_per_vehicle": round(avg_per_vehicle, 2)
+        "today": round(today_total, 2),
+        "week": round(week_total, 2),
+        "month": round(month_total, 2),
+        "avg_per_vehicle": round(avg_per_vehicle, 2),
+        "total_revenue": round(total_revenue, 2),
+        "total_transactions": int(total_transactions),
+        "completed_transactions": int(paid_transactions),
+        "paid_transactions": int(paid_transactions),
+        "open_transactions": 0,
+        "pending_transactions": int(pending_transactions),
+        "failed_transactions": int(failed_transactions),
+        "completion_rate": round(completion_rate, 1),
     }
 
 @app.get("/revenue/transactions")
 def get_revenue_transactions(limit: int = 20, page: int = 1, date: str = None, db: Session = Depends(get_db)):
-    query = db.query(Transaction).order_by(Transaction.entry_time.desc())
+    _, payments = _cashier_payment_payloads(db)
+    query = payments
     if date:
         date_obj = datetime.fromisoformat(date)
-        query = query.filter(Transaction.entry_time >= date_obj, Transaction.entry_time < date_obj + timedelta(days=1))
-    total = query.count()
-    transactions = query.offset((page - 1) * limit).limit(limit).all()
+        next_date = date_obj + timedelta(days=1)
+        query = [
+            payment for payment in query
+            if ((_parse_iso_datetime(payment.get("paid_at") or payment.get("created_at")) or datetime.min) >= date_obj)
+            and ((_parse_iso_datetime(payment.get("paid_at") or payment.get("created_at")) or datetime.min) < next_date)
+        ]
+    total = len(query)
+    start = max(0, (page - 1) * limit)
+    transactions = query[start:start + limit]
     result = [
         {
-            "time": t.entry_time.isoformat() + "Z" if t.entry_time else None,
-            "plate": t.plate,
-            "slot": t.slot_id,
-            "type": t.vehicle_type,
-            "duration": _format_duration_minutes(t.duration_mins, t.entry_time, t.exit_time),
-            "duration_minutes": _derive_duration_minutes(t.duration_mins, t.entry_time, t.exit_time),
-            "amount": t.amount,
-            "status": t.status
-        } for t in transactions
+            "time": payment.get("paid_at") or payment.get("created_at"),
+            "plate": payment.get("license_plate"),
+            "slot": payment.get("slot_id"),
+            "type": payment.get("payment_method") or payment.get("payment_provider") or "cashier",
+            "duration": _format_duration_minutes(
+                None,
+                _parse_iso_datetime((payment.get("reservation") or {}).get("entry_time")),
+                _parse_iso_datetime((payment.get("reservation") or {}).get("actual_exit_time")),
+            ),
+            "duration_minutes": _derive_duration_minutes(
+                None,
+                _parse_iso_datetime((payment.get("reservation") or {}).get("entry_time")),
+                _parse_iso_datetime((payment.get("reservation") or {}).get("actual_exit_time")),
+            ),
+            "amount": float(payment.get("amount") or 0),
+            "status": payment.get("status"),
+        } for payment in transactions
     ]
     return {"transactions": result, "total": total, "page": page, "limit": limit}
 
 @app.get("/revenue/chart")
 def get_revenue_chart(range: str = "7d", db: Session = Depends(get_db)):
-    days = 7 if range == "7d" else 30
-    start_date = datetime.utcnow() - timedelta(days=days)
-    from sqlalchemy import func
-    daily_totals = db.query(
-        func.date(Transaction.entry_time).label('date'),
-        func.sum(Transaction.amount).label('total')
-    ).filter(Transaction.entry_time >= start_date).group_by(func.date(Transaction.entry_time)).all()
-    result = [{"date": str(d[0]), "total": float(d[1])} for d in daily_totals]
+    range_key = range
+    days = 7 if range_key == "7d" else 30
+    today = datetime.utcnow().date()
+    start_day = today - timedelta(days=days - 1)
+    _, payments = _cashier_payment_payloads(db)
+    grouped_totals = defaultdict(float)
+    for payment in payments:
+        status = str(payment.get("status") or "").lower()
+        if status not in {"paid", "completed"}:
+            continue
+        timestamp = _parse_iso_datetime(payment.get("paid_at") or payment.get("created_at"))
+        if not timestamp:
+            continue
+        payment_day = timestamp.date()
+        if payment_day < start_day or payment_day > today:
+            continue
+        grouped_totals[payment_day.isoformat()] += float(payment.get("amount") or 0)
+
+    result = []
+    for offset in __builtins__["range"](days):
+        day = start_day + timedelta(days=offset)
+        day_key = day.isoformat()
+        result.append({
+            "date": day_key,
+            "total": round(grouped_totals.get(day_key, 0.0), 2),
+        })
     return {"data": result}
 
 @app.get("/analytics/dwell")

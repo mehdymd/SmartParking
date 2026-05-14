@@ -1,13 +1,17 @@
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 const frontendDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(frontendDir, '..');
 const reactScriptsBin = require.resolve('react-scripts/bin/react-scripts.js');
-const pythonCmd = process.env.PYTHON || 'python3';
+const venvPython = process.platform === 'win32'
+  ? path.join(repoRoot, '.venv', 'Scripts', 'python.exe')
+  : path.join(repoRoot, '.venv', 'bin', 'python');
+const pythonCmd = process.env.PYTHON || (fs.existsSync(venvPython) ? venvPython : 'python3');
 const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
-const backendPort = process.env.BACKEND_PORT || '8000';
+const backendPort = process.env.BACKEND_PORT || '8001';
 const backendHttpBase = process.env.REACT_APP_API_BASE || `http://${backendHost}:${backendPort}`;
 const backendWsBase = process.env.REACT_APP_WS_BASE || backendHttpBase.replace(/^http/i, 'ws');
 

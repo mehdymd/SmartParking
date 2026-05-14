@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { authFetch } from '../../lib/auth';
+import { authFetch, normalizeRole } from '../../lib/auth';
 import { Users, Plus, Trash2, DollarSign, AlertTriangle } from 'lucide-react';
 
 const UsersPage = ({ currentUser }) => {
@@ -26,9 +26,10 @@ const UsersPage = ({ currentUser }) => {
     priority: 'medium',
   });
 
-  const isAdmin = currentUser?.role === 'admin';
+  const currentRole = normalizeRole(currentUser?.role);
+  const isAdmin = currentRole === 'admin';
   // eslint-disable-next-line no-unused-vars
-  const isCashier = currentUser?.role === 'cashier';
+  const isCashier = currentRole === 'cashier';
   const canManageUsers = isAdmin;
 
   const loadUsers = async () => {

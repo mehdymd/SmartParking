@@ -48,13 +48,19 @@ const SlotEditor = () => {
   const loadFromCurrentFeed = async () => {
     try {
       const response = await fetch(apiUrl('/parking/snapshot'));
-      if (!response.ok) { alert('No active video feed.'); return; }
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        alert(payload.detail || 'No active video feed.');
+        return;
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const img = new Image();
       img.onload = () => { setImage(img); drawCanvas(img); URL.revokeObjectURL(url); };
       img.src = url;
-    } catch { alert('Error capturing frame.'); }
+    } catch {
+      alert('Error capturing frame.');
+    }
   };
 
   const getPoints = (slot) => Array.isArray(slot) ? slot : slot?.points || [];

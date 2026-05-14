@@ -218,7 +218,7 @@ export const mobileAuth = {
     } catch (err) {
       console.error('[DEBUG] sendOTP network error:', err);
       if (err.message === 'Failed to fetch' || err.message.includes('network')) {
-        throw new Error('Cannot connect to server. Make sure backend is running on port 8000.');
+        throw new Error('Cannot connect to server. Make sure backend is running on port 8001.');
       }
       throw err;
     }
@@ -243,7 +243,7 @@ export const mobileAuth = {
     } catch (err) {
       console.error('[DEBUG] login network error:', err);
       if (err.message === 'Failed to fetch' || err.message.includes('network')) {
-        throw new Error('Cannot connect to server. Make sure backend is running on port 8000.');
+        throw new Error('Cannot connect to server. Make sure backend is running on port 8001.');
       }
       throw err;
     }

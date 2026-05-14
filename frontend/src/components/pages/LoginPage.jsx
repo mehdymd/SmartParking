@@ -3,7 +3,7 @@ import { apiUrl } from '../../lib/api';
 
 const LoginPage = ({ onLogin }) => {
   const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('test123');
+  const [password, setPassword] = useState('admin');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 

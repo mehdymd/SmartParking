@@ -2,10 +2,18 @@ import { apiCandidates, apiUrl } from './api';
 
 const STORAGE_KEY = 'smartparking.auth';
 
+export const normalizeRole = (role) => String(role || '').trim().toLowerCase();
+export const normalizeUser = (user) => (
+  user ? { ...user, role: normalizeRole(user.role) || 'user' } : user
+);
+export const normalizeAuth = (auth) => (
+  auth ? { ...auth, user: normalizeUser(auth.user) } : auth
+);
+
 export const loadAuth = () => {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? normalizeAuth(JSON.parse(raw)) : null;
   } catch {
     return null;
   }
@@ -17,7 +25,7 @@ export const saveAuth = (auth) => {
       window.localStorage.removeItem(STORAGE_KEY);
       return;
     }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeAuth(auth)));
   } catch {}
 };
 
