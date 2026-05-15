@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { authFetch } from '../../lib/auth';
+import { authFetch, normalizeRole } from '../../lib/auth';
 import { apiUrl } from '../../lib/api';
 
 const RESERVATION_DURATION_MINUTES = 15;
@@ -51,8 +51,9 @@ const ReservationsPage = ({ token, user }) => {
   const [activePayment, setActivePayment] = useState(null);
   // eslint-disable-next-line no-unused-vars
   const [lots, setLots] = useState([]);
-  const canManage = user?.role === 'admin' || user?.role === 'operator';
-  const isAdmin = user?.role === 'admin';
+  const role = normalizeRole(user?.role);
+  const canManage = role === 'admin' || role === 'operator';
+  const isAdmin = role === 'admin';
 
   const handleMarkPaidDirect = async (reservationId) => {
     setError('');

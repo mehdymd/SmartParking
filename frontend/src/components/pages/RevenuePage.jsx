@@ -1,5 +1,46 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Filler,
+  Legend,
+} from 'chart.js';
 import { apiUrl } from '../../lib/api';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler, Legend);
+
+const PAGE_SIZE = 20;
+const STATUS_FILTERS = ['all', 'paid', 'pending', 'failed'];
+
+const formatTime = (value) => {
+  if (!value) return '-';
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return value;
+  }
+};
+
+const normalizeStatus = (status) => {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'completed') return 'paid';
+  if (['failed', 'voided', 'expired'].includes(normalized)) return 'failed';
+  if (normalized === 'pending') return 'pending';
+  return normalized || 'pending';
+};
 
 const RevenuePage = () => {
   const [summary, setSummary] = useState({});
@@ -14,26 +55,26 @@ const RevenuePage = () => {
 
   const fetchSummary = useCallback(async () => {
     try {
-      const r = await fetch(apiUrl('/revenue/summary'));
-      setSummary(await r.json());
+      const response = await fetch(apiUrl('/revenue/summary'));
+      setSummary(await response.json());
     } catch {}
   }, []);
 
   const fetchTransactions = useCallback(async () => {
     try {
-      const r = await fetch(apiUrl(`/revenue/transactions?page=${currentPage}`));
-      const d = await r.json();
-      setTransactions(d.transactions || []);
-      setTotal(d.total || 0);
-      setTotalPages(Math.max(1, Math.ceil((d.total || 0) / 20)));
+      const response = await fetch(apiUrl(`/revenue/transactions?page=${currentPage}`));
+      const payload = await response.json();
+      setTransactions(payload.transactions || []);
+      setTotal(payload.total || 0);
+      setTotalPages(Math.max(1, Math.ceil((payload.total || 0) / PAGE_SIZE)));
     } catch {}
   }, [currentPage]);
 
   const fetchChart = useCallback(async () => {
     try {
-      const r = await fetch(apiUrl(`/revenue/chart?range=${chartRange}`));
-      const d = await r.json();
-      setChartData(d.data || []);
+      const response = await fetch(apiUrl(`/revenue/chart?range=${chartRange}`));
+      const payload = await response.json();
+      setChartData(payload.data || []);
     } catch {}
   }, [chartRange]);
 
@@ -49,52 +90,107 @@ const RevenuePage = () => {
     fetchChart();
   }, [fetchChart]);
 
-  const formatTime = (t) => {
-    if (!t) return '—';
-    try {
-      const d = new Date(t);
-      if (isNaN(d.getTime())) return t;
-      return d.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
-    } catch {
-      return t;
-    }
-  };
+  const filteredTransactions = useMemo(() => transactions.filter((transaction) => {
+    const normalizedStatus = normalizeStatus(transaction.status);
+    if (filter !== 'all' && normalizedStatus !== filter) return false;
+    if (!search) return true;
+    const needle = search.toLowerCase();
+    return [transaction.plate, transaction.slot, transaction.type]
+      .some((field) => String(field || '').toLowerCase().includes(needle));
+  }), [filter, search, transactions]);
 
-  const filtered = transactions.filter((t) => {
-    if (filter !== 'all' && t.status !== filter) return false;
-    if (search) {
-      const s = search.toLowerCase();
-      return [t.plate, t.slot, t.type].some((f) => (f || '').toLowerCase().includes(s));
-    }
-    return true;
-  });
-
-  const maxChart = Math.max(1, ...chartData.map((d) => d.total || 0));
   const avgChart = chartData.length > 0
-    ? chartData.reduce((sum, d) => sum + (d.total || 0), 0) / chartData.length
+    ? chartData.reduce((sum, item) => sum + Number(item.total || 0), 0) / chartData.length
     : 0;
-  const totalRevenue = chartData.reduce((sum, d) => sum + (d.total || 0), 0);
-  const completedCount = transactions.filter((t) => t.status === 'completed').length;
-  const activeCount = transactions.filter((t) => t.status === 'open').length;
-  const pendingCount = transactions.filter((t) => t.status === 'pending').length;
-  const completionRate = transactions.length > 0
-    ? Math.round((completedCount / Math.max(1, transactions.length)) * 100)
-    : 0;
+  const totalRevenue = chartData.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const totalTransactionCount = Number(summary.total_transactions || total || 0);
+  const paidCount = Number(summary.paid_transactions ?? summary.completed_transactions ?? 0);
+  const pendingCount = Number(summary.pending_transactions || 0);
+  const failedCount = Number(summary.failed_transactions || 0);
+  const paidRate = Math.round(Number(summary.completion_rate || 0));
   const peakDay = chartData.reduce((best, current) => (
-    (current.total || 0) > (best.total || 0) ? current : best
+    Number(current.total || 0) > Number(best.total || 0) ? current : best
   ), chartData[0] || {});
+  const lineChartData = useMemo(() => ({
+    labels: chartData.map((item) => item.date ? item.date.slice(5) : ''),
+    datasets: [
+      {
+        label: 'Revenue',
+        data: chartData.map((item) => Number(item.total || 0)),
+        borderColor: '#3498DB',
+        backgroundColor: 'rgba(52, 152, 219, 0.14)',
+        pointBackgroundColor: '#2ECC71',
+        pointBorderColor: '#0b111b',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBorderWidth: 2,
+        borderWidth: 3,
+        tension: 0.35,
+        fill: true,
+      },
+      {
+        label: 'Average',
+        data: chartData.map(() => Number(avgChart.toFixed(2))),
+        borderColor: 'rgba(255, 255, 255, 0.38)',
+        borderDash: [6, 6],
+        pointRadius: 0,
+        borderWidth: 1.5,
+        tension: 0,
+        fill: false,
+      },
+    ],
+  }), [avgChart, chartData]);
+  const lineChartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index',
+      intersect: false,
+    },
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        backgroundColor: 'rgba(11, 17, 27, 0.94)',
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderWidth: 1,
+        titleColor: '#F8FAFC',
+        bodyColor: '#CBD5E1',
+        padding: 12,
+        displayColors: false,
+        callbacks: {
+          label: (context) => `${context.dataset.label}: $${Number(context.parsed.y || 0).toFixed(2)}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: {
+          display: false,
+        },
+        ticks: {
+          color: 'rgba(148, 163, 184, 0.85)',
+        },
+      },
+      y: {
+        beginAtZero: true,
+        grid: {
+          color: 'rgba(255, 255, 255, 0.06)',
+        },
+        ticks: {
+          color: 'rgba(148, 163, 184, 0.85)',
+          callback: (value) => `$${value}`,
+        },
+      },
+    },
+  }), []);
 
-  const cards = [
-    { label: 'Today', key: 'today', color: '#2ECC71', note: 'Current day intake' },
+  const summaryCards = [
+    { label: 'Today', key: 'today', color: '#2ECC71', note: 'Cashier revenue today' },
     { label: 'This Week', key: 'week', color: '#3498DB', note: 'Rolling weekly total' },
-    { label: 'This Month', key: 'month', color: '#F59E0B', note: 'Month-to-date gross' },
-    { label: 'Avg / Vehicle', key: 'avg_per_vehicle', color: '#EF4444', note: 'Average closed ticket' },
+    { label: 'This Month', key: 'month', color: '#F59E0B', note: 'Month-to-date revenue' },
+    { label: 'Avg / Payment', key: 'avg_per_vehicle', color: '#EF4444', note: 'Average paid cashier ticket' },
   ];
 
   const pages = [];
@@ -104,17 +200,17 @@ const RevenuePage = () => {
 
   const statusBadge = (status) => {
     const map = {
-      completed: { color: '#2ECC71', bg: 'rgba(46,204,113,0.12)', border: 'rgba(46,204,113,0.22)', label: 'Completed' },
-      open: { color: '#3498DB', bg: 'rgba(52,152,219,0.12)', border: 'rgba(52,152,219,0.22)', label: 'Active' },
+      paid: { color: '#2ECC71', bg: 'rgba(46,204,113,0.12)', border: 'rgba(46,204,113,0.22)', label: 'Paid' },
       pending: { color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.22)', label: 'Pending' },
+      failed: { color: '#EF4444', bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.22)', label: 'Failed' },
     };
-    const s = map[status] || map.pending;
+    const tone = map[normalizeStatus(status)] || map.pending;
     return (
       <span
         className="rv-badge"
-        style={{ '--badge-color': s.color, '--badge-bg': s.bg, '--badge-border': s.border }}
+        style={{ '--badge-color': tone.color, '--badge-bg': tone.bg, '--badge-border': tone.border }}
       >
-        {s.label}
+        {tone.label}
       </span>
     );
   };
@@ -147,34 +243,29 @@ const RevenuePage = () => {
       <div className="rv-header">
         <div>
           <h1 className="rv-title">Revenue</h1>
-          <p className="rv-subtitle">Financial overview and transaction analytics.</p>
+          <p className="rv-subtitle">Cashier portal payments, revenue trends, and transaction history.</p>
         </div>
-        <button
-          className="rv-action-btn"
-          onClick={handleExportReport}
-        >
+        <button className="rv-action-btn" onClick={handleExportReport}>
           Export Report
         </button>
       </div>
 
       <div className="rv-stats-grid">
-        {cards.map((c) => (
-          <div key={c.key} className="glass rv-stat-card" style={{ '--accent-color': c.color }}>
-            <div className="rv-stat-label">{c.label}</div>
-            {(() => {
-              const amount = summary[c.key] !== undefined ? (parseFloat(summary[c.key]) || 0).toFixed(2) : '0.00';
-              const [whole, cents] = amount.split('.');
-              return (
-                <div className="rv-stat-value">
-                  <span className="rv-stat-currency">$</span>
-                  <span className="rv-stat-major">{whole}</span>
-                  <span className="rv-stat-minor">.{cents}</span>
-                </div>
-              );
-            })()}
-            <div className="rv-stat-note">{c.note}</div>
-          </div>
-        ))}
+        {summaryCards.map((card) => {
+          const amount = summary[card.key] !== undefined ? (parseFloat(summary[card.key]) || 0).toFixed(2) : '0.00';
+          const [whole, cents] = amount.split('.');
+          return (
+            <div key={card.key} className="glass rv-stat-card" style={{ '--accent-color': card.color }}>
+              <div className="rv-stat-label">{card.label}</div>
+              <div className="rv-stat-value">
+                <span className="rv-stat-currency">$</span>
+                <span className="rv-stat-major">{whole}</span>
+                <span className="rv-stat-minor">.{cents}</span>
+              </div>
+              <div className="rv-stat-note">{card.note}</div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="rv-main-grid">
@@ -183,79 +274,72 @@ const RevenuePage = () => {
             <div>
               <h2 className="rv-panel-title">Daily Revenue</h2>
               <p className="rv-panel-meta">
-                Avg ${avgChart.toFixed(2)}/day · Total ${totalRevenue.toFixed(2)} · Peak {peakDay?.date ? peakDay.date.slice(5) : '—'}
+                Avg ${avgChart.toFixed(2)}/day | Total ${totalRevenue.toFixed(2)} | Peak {peakDay?.date ? peakDay.date.slice(5) : '-'}
               </p>
             </div>
             <div className="rv-tabs">
-              {['7d', '30d'].map((r) => (
+              {['7d', '30d'].map((rangeKey) => (
                 <button
-                  key={r}
-                  className={`rv-tab${chartRange === r ? ' rv-tab-active' : ''}`}
-                  onClick={() => setChartRange(r)}
+                  key={rangeKey}
+                  className={`rv-tab${chartRange === rangeKey ? ' rv-tab-active' : ''}`}
+                  onClick={() => setChartRange(rangeKey)}
                 >
-                  {r.toUpperCase()}
+                  {rangeKey.toUpperCase()}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="rv-chart-area">
-            {chartData.length > 0 ? chartData.map((d, i) => (
-              <div key={i} className="rv-bar-group" title={`$${(d.total || 0).toFixed(2)}`}>
-                <div className="rv-bar-track">
-                  <div
-                    className="rv-bar-fill"
-                    style={{ height: `${Math.max(2, ((d.total || 0) / maxChart) * 100)}%` }}
-                  />
-                  <div className="rv-bar-avg" style={{ bottom: `${(avgChart / maxChart) * 100}%` }} />
-                </div>
-                <span className="rv-bar-x">{d.date ? d.date.slice(5) : ''}</span>
+            {chartData.length > 0 ? (
+              <div className="rv-line-chart-shell">
+                <Line data={lineChartData} options={lineChartOptions} />
               </div>
-            )) : (
-              <div className="rv-chart-empty">No data for this period</div>
+            ) : (
+              <div className="rv-chart-empty">No cashier revenue data for this period</div>
             )}
           </div>
         </div>
 
         <div className="glass rv-panel">
           <h2 className="rv-panel-title">Metrics</h2>
-          <p className="rv-panel-meta">Current status and completion mix.</p>
+          <p className="rv-panel-meta">Cashier payment mix and paid conversion.</p>
 
           <div className="rv-metric-row">
             <span className="rv-metric-label">Total Transactions</span>
-            <span className="rv-metric-value">{total}</span>
+            <span className="rv-metric-value">{totalTransactionCount}</span>
           </div>
           <div className="rv-metric-row">
-            <span className="rv-metric-label">Active Sessions</span>
-            <span className="rv-metric-value">{activeCount}</span>
+            <span className="rv-metric-label">Paid Transactions</span>
+            <span className="rv-metric-value">{paidCount}</span>
           </div>
           <div className="rv-metric-row">
-            <span className="rv-metric-label">Completion Rate</span>
-            <span className="rv-metric-value">{completionRate}%</span>
+            <span className="rv-metric-label">Paid Rate</span>
+            <span className="rv-metric-value">{paidRate}%</span>
           </div>
 
           <div className="rv-divider" />
 
           <div className="rv-bar-horizontal-row">
-            <span className="rv-bar-h-label">Completed</span>
+            <span className="rv-bar-h-label">Paid</span>
             <div className="rv-bar-h-track">
-              <div className="rv-bar-h-fill" style={{ '--fill-w': `${total > 0 ? (completedCount / total) * 100 : 0}%`, '--fill-c': '#2ECC71' }} />
+              <div className="rv-bar-h-fill" style={{ '--fill-w': `${totalTransactionCount > 0 ? (paidCount / totalTransactionCount) * 100 : 0}%`, '--fill-c': '#2ECC71' }} />
             </div>
-            <span className="rv-bar-h-count">{completedCount}</span>
-          </div>
-          <div className="rv-bar-horizontal-row">
-            <span className="rv-bar-h-label">Active</span>
-            <div className="rv-bar-h-track">
-              <div className="rv-bar-h-fill" style={{ '--fill-w': `${total > 0 ? (activeCount / total) * 100 : 0}%`, '--fill-c': '#3498DB' }} />
-            </div>
-            <span className="rv-bar-h-count">{activeCount}</span>
+            <span className="rv-bar-h-count">{paidCount}</span>
           </div>
           <div className="rv-bar-horizontal-row">
             <span className="rv-bar-h-label">Pending</span>
             <div className="rv-bar-h-track">
-              <div className="rv-bar-h-fill" style={{ '--fill-w': `${total > 0 ? (pendingCount / total) * 100 : 0}%`, '--fill-c': '#F59E0B' }} />
+              <div className="rv-bar-h-fill" style={{ '--fill-w': `${totalTransactionCount > 0 ? (pendingCount / totalTransactionCount) * 100 : 0}%`, '--fill-c': '#F59E0B' }} />
             </div>
             <span className="rv-bar-h-count">{pendingCount}</span>
+          </div>
+          <div className="rv-bar-horizontal-row">
+            <span className="rv-bar-h-label">Failed / Voided</span>
+            <div className="rv-bar-h-track">
+              <div className="rv-bar-h-fill" style={{ '--fill-w': `${totalTransactionCount > 0 ? (failedCount / totalTransactionCount) * 100 : 0}%`, '--fill-c': '#EF4444' }} />
+            </div>
+            <span className="rv-bar-h-count">{failedCount}</span>
           </div>
         </div>
       </div>
@@ -264,7 +348,7 @@ const RevenuePage = () => {
         <div className="rv-panel-header">
           <div>
             <h2 className="rv-panel-title">Transactions</h2>
-            <p className="rv-panel-meta">{filtered.length} visible of {total} total records</p>
+            <p className="rv-panel-meta">{filteredTransactions.length} visible of {total} total records</p>
           </div>
           <div className="rv-table-toolbar">
             <div className="rv-search">
@@ -274,23 +358,23 @@ const RevenuePage = () => {
               </svg>
               <input
                 className="rv-search-input"
-                placeholder="Search plate, slot..."
+                placeholder="Search plate, slot, or method..."
                 aria-label="Search transactions"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(event) => setSearch(event.target.value)}
               />
             </div>
             <div className="rv-tabs">
-              {['all', 'completed', 'open', 'pending'].map((f) => (
+              {STATUS_FILTERS.map((status) => (
                 <button
-                  key={f}
-                  className={`rv-tab${filter === f ? ' rv-tab-active' : ''}`}
+                  key={status}
+                  className={`rv-tab${filter === status ? ' rv-tab-active' : ''}`}
                   onClick={() => {
-                    setFilter(f);
+                    setFilter(status);
                     setCurrentPage(1);
                   }}
                 >
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                  {status.charAt(0).toUpperCase() + status.slice(1)}
                 </button>
               ))}
             </div>
@@ -304,26 +388,26 @@ const RevenuePage = () => {
                 <th>Time</th>
                 <th>Plate</th>
                 <th>Slot</th>
-                <th>Type</th>
+                <th>Method</th>
                 <th>Duration</th>
                 <th>Amount</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="rv-table-empty">No transactions found</td>
+                  <td colSpan="7" className="rv-table-empty">No cashier transactions found</td>
                 </tr>
-              ) : filtered.map((t, i) => (
-                <tr key={i}>
-                  <td className="rv-cell-muted">{formatTime(t.time)}</td>
-                  <td className="rv-cell-mono">{t.plate || '—'}</td>
-                  <td>{t.slot || '—'}</td>
-                  <td className="rv-cell-muted">{t.type || '—'}</td>
-                  <td>{t.duration || '—'}</td>
-                  <td className="rv-cell-amount">${t.amount || '0.00'}</td>
-                  <td>{statusBadge(t.status)}</td>
+              ) : filteredTransactions.map((transaction) => (
+                <tr key={`${transaction.time || 'txn'}-${transaction.plate || 'na'}-${transaction.slot || 'na'}`}>
+                  <td className="rv-cell-muted">{formatTime(transaction.time)}</td>
+                  <td className="rv-cell-mono">{transaction.plate || '-'}</td>
+                  <td>{transaction.slot || '-'}</td>
+                  <td className="rv-cell-muted">{transaction.type || '-'}</td>
+                  <td>{transaction.duration || '-'}</td>
+                  <td className="rv-cell-amount">${Number(transaction.amount || 0).toFixed(2)}</td>
+                  <td>{statusBadge(transaction.status)}</td>
                 </tr>
               ))}
             </tbody>
@@ -332,7 +416,7 @@ const RevenuePage = () => {
 
         <div className="rv-pagination">
           <span className="rv-page-info">
-            {total > 0 ? `${(currentPage - 1) * 20 + 1}–${Math.min(currentPage * 20, total)} of ${total}` : '0 records'}
+            {total > 0 ? `${(currentPage - 1) * PAGE_SIZE + 1}-${Math.min(currentPage * PAGE_SIZE, total)} of ${total}` : '0 records'}
           </span>
           <div className="rv-page-group">
             <button className="rv-page-btn" disabled={currentPage <= 1} onClick={() => setCurrentPage(1)}>
@@ -341,21 +425,21 @@ const RevenuePage = () => {
                 <polyline points="18 17 13 12 18 7" />
               </svg>
             </button>
-            <button className="rv-page-btn" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
+            <button className="rv-page-btn" disabled={currentPage <= 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="15 18 9 12 15 6" />
               </svg>
             </button>
-            {pages.map((n) => (
+            {pages.map((page) => (
               <button
-                key={n}
-                className={`rv-page-num${n === currentPage ? ' rv-page-active' : ''}`}
-                onClick={() => setCurrentPage(n)}
+                key={page}
+                className={`rv-page-num${page === currentPage ? ' rv-page-active' : ''}`}
+                onClick={() => setCurrentPage(page)}
               >
-                {n}
+                {page}
               </button>
             ))}
-            <button className="rv-page-btn" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}>
+            <button className="rv-page-btn" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
@@ -377,11 +461,26 @@ const RevenuePage = () => {
           padding: 24px;
         }
 
-        .rv-header {
+        .rv-header,
+        .rv-panel-header,
+        .rv-table-toolbar,
+        .rv-pagination,
+        .rv-page-group,
+        .rv-metric-row,
+        .rv-bar-horizontal-row {
           display: flex;
-          align-items: flex-start;
+          align-items: center;
+        }
+
+        .rv-header,
+        .rv-panel-header,
+        .rv-pagination {
           justify-content: space-between;
           gap: 16px;
+        }
+
+        .rv-header {
+          align-items: flex-start;
           margin-bottom: 24px;
         }
 
@@ -392,67 +491,117 @@ const RevenuePage = () => {
           color: var(--text-primary);
         }
 
-        .rv-subtitle {
-          margin: 0;
-          font-size: 14px;
+        .rv-subtitle,
+        .rv-panel-meta,
+        .rv-stat-note,
+        .rv-cell-muted,
+        .rv-page-info {
           color: var(--text-muted);
         }
 
-        .rv-action-btn {
-          height: 40px;
-          padding: 0 16px;
-          border-radius: 8px;
-          border: 1px solid var(--panel-border);
-          background: rgba(255,255,255,0.04);
-          color: var(--text-primary);
-          font: 600 13px 'Inter', sans-serif;
-          cursor: pointer;
-          transition: background 0.2s ease, border-color 0.2s ease;
+        .rv-subtitle,
+        .rv-panel-meta {
+          margin: 0;
+          font-size: 14px;
         }
 
-        .rv-action-btn:hover {
-          background: rgba(255,255,255,0.08);
-          border-color: rgba(255,255,255,0.16);
+        .rv-action-btn,
+        .rv-tab,
+        .rv-page-btn,
+        .rv-page-num,
+        .rv-search-input {
+          border-radius: 10px;
+          border: 1px solid var(--panel-border);
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--text-primary);
+        }
+
+        .rv-action-btn,
+        .rv-tab,
+        .rv-page-btn,
+        .rv-page-num {
+          height: 40px;
+          padding: 0 16px;
+          font: 600 13px 'Inter', sans-serif;
+          cursor: pointer;
+          transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .rv-action-btn:hover,
+        .rv-tab:hover,
+        .rv-page-btn:hover,
+        .rv-page-num:hover {
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.18);
+        }
+
+        .rv-page-btn:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
+        .rv-tabs,
+        .rv-page-group {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .rv-tab-active,
+        .rv-page-active {
+          background: rgba(52, 152, 219, 0.16);
+          border-color: rgba(52, 152, 219, 0.4);
+        }
+
+        .rv-stats-grid,
+        .rv-main-grid {
+          display: grid;
+          gap: 16px;
         }
 
         .rv-stats-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 16px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           margin-bottom: 24px;
         }
 
-        .rv-stat-card {
-          padding: 16px 20px;
+        .rv-main-grid {
+          grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+          margin-bottom: 24px;
+        }
+
+        .rv-stat-card,
+        .rv-panel {
           position: relative;
+          overflow: hidden;
+        }
+
+        .rv-stat-card {
+          padding: 18px 20px;
         }
 
         .rv-stat-card::before {
           content: '';
           position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
+          inset: 0 0 auto 0;
           height: 3px;
-          border-radius: 12px 12px 0 0;
           background: var(--accent-color);
         }
 
         .rv-stat-label {
           margin-bottom: 10px;
           font-size: 11px;
-          font-weight: 600;
-          color: var(--text-muted);
+          font-weight: 700;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          letter-spacing: 0.06em;
+          color: var(--text-muted);
         }
 
         .rv-stat-value {
           display: flex;
           align-items: flex-start;
           gap: 2px;
-          color: var(--text-primary);
           line-height: 1;
+          color: var(--text-primary);
         }
 
         .rv-stat-currency {
@@ -465,257 +614,129 @@ const RevenuePage = () => {
         .rv-stat-major {
           font-size: 34px;
           font-weight: 700;
-          color: var(--text-primary);
           letter-spacing: -0.04em;
-          font-variant-numeric: tabular-nums;
         }
 
         .rv-stat-minor {
           margin-top: 6px;
           font-size: 15px;
           font-weight: 600;
-          color: var(--text-muted);
-          font-variant-numeric: tabular-nums;
-        }
-
-        .rv-stat-note {
-          margin-top: 8px;
-          font-size: 12px;
-          color: var(--text-secondary);
-        }
-
-        .rv-main-grid {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 16px;
-          margin-bottom: 24px;
         }
 
         .rv-panel {
           padding: 20px;
         }
 
-        .rv-panel-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 16px;
-          margin-bottom: 20px;
-        }
-
         .rv-panel-title {
-          margin: 0;
-          font-size: 16px;
+          margin: 0 0 6px;
+          font-size: 18px;
           font-weight: 600;
-          color: var(--text-primary);
-        }
-
-        .rv-panel-meta {
-          margin: 4px 0 0;
-          font-size: 12px;
-          color: var(--text-muted);
-        }
-
-        .rv-tabs {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .rv-tab {
-          height: 32px;
-          padding: 0 12px;
-          border-radius: 8px;
-          border: 1px solid var(--panel-border);
-          background: rgba(255,255,255,0.03);
-          color: var(--text-muted);
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-        }
-
-        .rv-tab:hover {
-          color: var(--text-primary);
-        }
-
-        .rv-tab-active {
-          background: rgba(52,152,219,0.18);
-          border-color: rgba(52,152,219,0.4);
           color: var(--text-primary);
         }
 
         .rv-chart-area {
-          display: flex;
-          align-items: flex-end;
-          gap: 8px;
-          height: 220px;
-          padding-top: 8px;
+          margin-top: 20px;
+          min-height: 280px;
         }
 
-        .rv-bar-group {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          height: 100%;
+        .rv-line-chart-shell {
+          height: 280px;
+          padding: 12px 10px 6px;
+          border-radius: 16px;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
+          border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .rv-bar-track {
-          position: relative;
-          flex: 1;
-          width: 100%;
-          display: flex;
-          align-items: flex-end;
-          background: rgba(255,255,255,0.04);
-          border-radius: 8px;
-          margin-bottom: 8px;
-          overflow: hidden;
-        }
-
-        .rv-bar-fill {
-          width: 100%;
-          background: linear-gradient(180deg, var(--blue), var(--blue-dark));
-          border-radius: 8px 8px 0 0;
-          transition: height 0.5s ease;
-        }
-
-        .rv-bar-avg {
-          position: absolute;
-          left: 0;
-          right: 0;
-          height: 1px;
-          border-top: 1px dashed var(--amber);
-          opacity: 0.5;
-        }
-
-        .rv-bar-x {
-          font-size: 10px;
+        .rv-metric-label,
+        .rv-bar-h-label {
+          font-size: 12px;
           color: var(--text-muted);
-          font-family: 'JetBrains Mono', monospace;
         }
 
-        .rv-chart-empty {
-          width: 100%;
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        .rv-chart-empty,
+        .rv-table-empty {
+          padding: 32px 12px;
+          text-align: center;
           color: var(--text-muted);
-          background: rgba(255,255,255,0.02);
-          border-radius: 8px;
         }
 
-        .rv-metric-row {
-          display: flex;
+        .rv-metric-row,
+        .rv-bar-horizontal-row {
           justify-content: space-between;
-          align-items: center;
-          padding: 10px 0;
+          gap: 12px;
         }
 
         .rv-metric-row + .rv-metric-row {
-          border-top: 1px solid rgba(255,255,255,0.04);
+          margin-top: 12px;
         }
 
-        .rv-metric-label {
-          font-size: 13px;
-          color: var(--text-secondary);
+        .rv-metric-value,
+        .rv-bar-h-count,
+        .rv-cell-amount,
+        .rv-cell-mono {
+          font-variant-numeric: tabular-nums;
         }
 
         .rv-metric-value {
-          font-size: 13px;
+          font-size: 20px;
           font-weight: 700;
           color: var(--text-primary);
-          font-family: 'JetBrains Mono', monospace;
         }
 
         .rv-divider {
           height: 1px;
-          background: rgba(255,255,255,0.06);
-          margin: 16px 0;
+          margin: 18px 0;
+          background: rgba(255, 255, 255, 0.08);
         }
 
-        .rv-bar-horizontal-row {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 6px 0;
-        }
-
-        .rv-bar-h-label {
-          width: 80px;
-          font-size: 12px;
-          font-weight: 600;
-          color: var(--text-muted);
+        .rv-bar-horizontal-row + .rv-bar-horizontal-row {
+          margin-top: 12px;
         }
 
         .rv-bar-h-track {
           flex: 1;
-          height: 8px;
-          background: rgba(255,255,255,0.05);
+          height: 10px;
+          background: rgba(255, 255, 255, 0.06);
           border-radius: 999px;
           overflow: hidden;
         }
 
         .rv-bar-h-fill {
+          width: var(--fill-w);
           height: 100%;
-          width: var(--fill-w, 0%);
           background: var(--fill-c);
-          border-radius: 999px;
-          transition: width 0.5s ease;
-        }
-
-        .rv-bar-h-count {
-          width: 32px;
-          text-align: right;
-          font-size: 12px;
-          font-weight: 700;
-          color: var(--text-primary);
-          font-family: 'JetBrains Mono', monospace;
+          border-radius: inherit;
         }
 
         .rv-table-toolbar {
-          display: flex;
-          align-items: center;
+          gap: 12px;
           flex-wrap: wrap;
-          gap: 16px;
+          justify-content: flex-end;
         }
 
         .rv-search {
+          min-width: 240px;
           display: flex;
           align-items: center;
           gap: 10px;
-          min-height: 38px;
-          padding: 0 14px;
-          border-radius: 8px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.03);
+          padding: 0 12px;
+          border-radius: 12px;
+          border: 1px solid var(--panel-border);
+          background: rgba(255, 255, 255, 0.03);
           color: var(--text-muted);
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .rv-search:focus-within {
-          border-color: var(--blue);
-          box-shadow: 0 0 0 3px rgba(52,152,219,0.15);
         }
 
         .rv-search-input {
-          width: 180px;
-          background: none;
-          border: none;
+          width: 100%;
+          height: 40px;
+          border: 0;
+          background: transparent;
           outline: none;
-          color: var(--text-primary);
-          font-size: 14px;
-        }
-
-        .rv-search-input::placeholder {
-          color: rgba(255,255,255,0.28);
+          padding: 0;
         }
 
         .rv-table-scroll {
-          margin: 0 -20px;
-          padding: 0 20px;
-          border-top: 1px solid rgba(255,255,255,0.06);
+          margin-top: 16px;
           overflow-x: auto;
         }
 
@@ -724,165 +745,69 @@ const RevenuePage = () => {
           border-collapse: collapse;
         }
 
-        .rv-table th {
-          position: sticky;
-          top: 0;
-          z-index: 1;
-          padding: 14px 16px;
+        .rv-table th,
+        .rv-table td {
+          padding: 14px 12px;
           text-align: left;
-          font-size: 11px;
-          font-weight: 700;
-          color: var(--text-muted);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .rv-table th {
+          font-size: 12px;
+          letter-spacing: 0.06em;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
-          border-bottom: 1px solid rgba(255,255,255,0.06);
-          background: rgba(26,26,26,0.96);
+          color: var(--text-muted);
         }
 
         .rv-table td {
-          padding: 14px 16px;
-          font-size: 14px;
-          color: var(--text-secondary);
-          border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-
-        .rv-table tr:hover td {
-          background: rgba(255,255,255,0.03);
-        }
-
-        .rv-cell-muted {
-          color: var(--text-muted);
-          font-size: 13px;
-        }
-
-        .rv-cell-mono {
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 13px;
-          font-weight: 600;
           color: var(--text-primary);
-        }
-
-        .rv-cell-amount {
-          font-weight: 700;
-          color: var(--green);
-          font-family: 'JetBrains Mono', monospace;
         }
 
         .rv-badge {
           display: inline-flex;
           align-items: center;
-          min-height: 24px;
-          padding: 0 10px;
-          border-radius: 999px;
-          font-size: 10px;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          color: var(--badge-color);
-          background: var(--badge-bg);
-          border: 1px solid var(--badge-border);
-        }
-
-        .rv-table-empty {
-          padding: 40px 16px;
-          text-align: center;
-          color: var(--text-muted);
-        }
-
-        .rv-pagination {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          padding-top: 20px;
-        }
-
-        .rv-page-info {
-          font-size: 13px;
-          color: var(--text-muted);
-        }
-
-        .rv-page-group {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .rv-page-btn,
-        .rv-page-num {
-          display: flex;
-          align-items: center;
           justify-content: center;
-          min-width: 36px;
-          height: 36px;
-          border-radius: 8px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.03);
-          color: var(--text-muted);
-          cursor: pointer;
-          font-size: 13px;
-          font-weight: 600;
-          transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-        }
-
-        .rv-page-btn:hover:not(:disabled),
-        .rv-page-num:hover {
-          background: rgba(255,255,255,0.06);
-          border-color: rgba(255,255,255,0.14);
-          color: var(--text-primary);
-        }
-
-        .rv-page-active {
-          background: rgba(52,152,219,0.18);
-          border-color: rgba(52,152,219,0.4);
-          color: var(--text-primary);
-        }
-
-        .rv-page-btn:disabled {
-          opacity: 0.3;
-          cursor: not-allowed;
+          min-width: 80px;
+          padding: 6px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--badge-border);
+          background: var(--badge-bg);
+          color: var(--badge-color);
+          font-size: 12px;
+          font-weight: 700;
         }
 
         @media (max-width: 1100px) {
-          .rv-stats-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
+          .rv-stats-grid,
           .rv-main-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: 1fr 1fr;
           }
         }
 
-        @media (max-width: 720px) {
+        @media (max-width: 780px) {
           .rv-page {
-            padding: 22px 16px 28px;
+            padding: 16px;
           }
 
-          .rv-header {
-            flex-direction: column;
-            align-items: stretch;
-          }
-
-          .rv-stats-grid {
+          .rv-stats-grid,
+          .rv-main-grid {
             grid-template-columns: 1fr;
           }
 
-          .rv-table-toolbar {
-            flex-direction: column;
-            align-items: stretch;
-          }
-
-          .rv-search-input {
-            width: 100%;
-          }
-
+          .rv-header,
+          .rv-panel-header,
           .rv-pagination {
             flex-direction: column;
             align-items: stretch;
           }
 
-          .rv-page-group {
-            justify-content: space-between;
+          .rv-table-toolbar {
+            justify-content: stretch;
+          }
+
+          .rv-search {
+            min-width: 0;
+            width: 100%;
           }
         }
       `}</style>

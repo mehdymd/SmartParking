@@ -943,6 +943,14 @@ async def process_video():
                 await asyncio.sleep(0.01)
                 continue
 
+            # Publish the latest raw frame for single-frame capture endpoints.
+            try:
+                raw_ok, raw_buffer = cv2.imencode(".jpg", frame)
+                if raw_ok:
+                    api_app.state.latest_raw_jpeg = raw_buffer.tobytes()
+            except Exception as e:
+                print(f"Error encoding latest raw frame: {e}")
+
             frame_count += 1
 
             # Reload slot config immediately when JSON changes

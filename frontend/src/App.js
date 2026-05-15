@@ -14,7 +14,7 @@ import MobilePortal from './components/pages/MobilePortal';
 import MobileLogin from './components/pages/MobileLogin';
 import UsersPage from './components/pages/UsersPage';
 import CashierDashboard from './components/pages/CashierDashboard';
-import { authFetch, loadAuth, saveAuth } from './lib/auth';
+import { authFetch, loadAuth, normalizeAuth, normalizeRole, saveAuth } from './lib/auth';
 import { mobileAuth, wsUrl } from './lib/api';
 
 function App() {
@@ -89,7 +89,7 @@ function App() {
   }, []);
 
   const allowedPages = useMemo(() => {
-    const role = currentUser?.role || 'user';
+    const role = normalizeRole(currentUser?.role) || 'user';
     if (role === 'cashier') {
       return ['CashierDashboard'];
     }
@@ -133,10 +133,10 @@ function App() {
         const response = await authFetch('/auth/me', {}, token);
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || 'Session expired');
-        const nextAuth = { token, user: payload.user };
+        const nextAuth = normalizeAuth({ token, user: payload.user });
         setAuth(nextAuth);
         saveAuth(nextAuth);
-        const role = payload.user?.role || 'user';
+        const role = normalizeRole(payload.user?.role) || 'user';
         setCurrentPage(role === 'cashier' ? 'CashierDashboard' : 'Dashboard');
       } catch {
         setAuth(null);
@@ -150,9 +150,10 @@ function App() {
   }, [token]);
 
   const handleLogin = (payload) => {
-    saveAuth(payload);
-    setAuth(payload);
-    const role = payload.user?.role || 'user';
+    const nextAuth = normalizeAuth(payload);
+    saveAuth(nextAuth);
+    setAuth(nextAuth);
+    const role = normalizeRole(nextAuth.user?.role) || 'user';
     setCurrentPage(role === 'cashier' ? 'CashierDashboard' : 'Dashboard');
     setAuthReady(true);
   };

@@ -48,12 +48,16 @@ class Config:
     
     # Video Source
     _raw_video_source = os.getenv("VIDEO_SOURCE", None)
-    # Default to local webcam (0) unless explicitly overridden.
-    if _raw_video_source is None or _raw_video_source == "":
+    # Default to local webcam (0) unless explicitly disabled or overridden.
+    if _raw_video_source is None:
         VIDEO_SOURCE = 0
     else:
-        # Normalize common webcam spec.
-        VIDEO_SOURCE = 0 if _raw_video_source == "0" else _raw_video_source
+        normalized_video_source = _raw_video_source.strip().lower()
+        if normalized_video_source in {"", "disabled", "off", "none"}:
+            VIDEO_SOURCE = ""
+        else:
+            # Normalize common webcam spec.
+            VIDEO_SOURCE = 0 if normalized_video_source == "0" else _raw_video_source
     
     # Occupancy Threshold
     IOU_THRESHOLD = float(os.getenv("IOU_THRESHOLD", "0.3"))

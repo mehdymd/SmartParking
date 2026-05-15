@@ -10,7 +10,7 @@ import {
   Video,
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
-import { authFetch } from '../lib/auth';
+import { authFetch, normalizeRole } from '../lib/auth';
 
 const dropdownItemStyle = {
   width: '100%',
@@ -52,7 +52,7 @@ const Controls = ({ feedState, setFeedState, token, currentUser }) => {
   const [cameraActionLoading, setCameraActionLoading] = useState(false);
   const fileInputRef = useRef(null);
   const cameraOn = feedState?.mode === 'camera';
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = normalizeRole(currentUser?.role) === 'admin';
 
   const cameraRegistry = cameraStatus?.cameras || [];
   const activeCamera = cameraRegistry.find((camera) => camera.id === cameraStatus?.active_camera_id || camera.is_active) || null;
